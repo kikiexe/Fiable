@@ -28,6 +28,19 @@ interface ICLOBEngine {
         FiebleTypes.TenorBucket tenor
     );
 
+    event MarketOrderExecuted(
+        uint256 indexed positionId,
+        address indexed taker,
+        FiebleTypes.OrderSide side,
+        FiebleTypes.TenorBucket tenor,
+        uint256 totalAmount,
+        uint256 clobMatchedAmount,
+        uint256 ammMatchedAmount,
+        uint256 effectiveRate
+    );
+
+    event AMMFallbackSet(address indexed previousAddress, address indexed newAddress);
+
     // ============================================================
     //                      ERRORS
     // ============================================================
@@ -40,6 +53,8 @@ interface ICLOBEngine {
     error InsufficientBalance(address account, uint256 required, uint256 actual);
     error NoMatchingOrder();
     error SelfMatchNotAllowed();
+    error AMMFallbackNotConfigured();
+    error SlippageExceeded(uint256 actualRate, uint256 maxSlippageRate);
 
     // ============================================================
     //                      FUNCTIONS
@@ -63,6 +78,25 @@ interface ICLOBEngine {
     /// @param tenor Bucket tenor yang akan di-match
     /// @return positionId ID posisi kredit baru, 0 jika tidak ada match
     function matchOrders(FiebleTypes.TenorBucket tenor) external returns (uint256 positionId);
+
+    /// @notice Eksekusi order market taker secara instan: menghabiskan CLOB dulu, sisa diarahkan ke AMM Fallback.
+    /// @param side Sisi taker (Lend atau Borrow).
+    /// @param tenor Bucket tenor.
+    /// @param amount Total principal yang ingin dieksekusi.
+    /// @param maxSlippageRate Toleransi rate maksimum (borrower) atau minimum (lender).
+    /// @return positionId ID posisi kredit baru yang tercatat.
+    function executeMarketOrder(
+        FiebleTypes.OrderSide side,
+        FiebleTypes.TenorBucket tenor,
+        uint256 amount,
+        uint256 maxSlippageRate
+    ) external returns (uint256 positionId);
+
+    /// @notice Mengatur alamat kontrak AMMFallback resmi.
+    function setAMMFallback(address ammFallbackAddress) external;
+
+    /// @notice Mengambil alamat kontrak AMMFallback saat ini.
+    function getAMMFallback() external view returns (address);
 
     /// @notice Baca detail order by ID.
     function getOrder(uint256 orderId) external view returns (FiebleTypes.Order memory);

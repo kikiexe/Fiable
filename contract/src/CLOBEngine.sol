@@ -2,12 +2,14 @@
 pragma solidity ^0.8.20;
 
 import {ICLOBEngine} from "./interfaces/ICLOBEngine.sol";
+import {IAMMFallback} from "./interfaces/IAMMFallback.sol";
 import {FiebleTypes} from "./types/FiebleTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
+contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
     using FiebleTypes for FiebleTypes.TenorBucket;
 
@@ -17,6 +19,9 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
 
     /// @notice Token yang digunakan sebagai principal (misal USDC).
     IERC20 public immutable token;
+
+    /// @notice Alamat kontrak AMMFallback resmi.
+    address public ammFallback;
 
     /// @notice Counter auto-increment untuk order ID.
     uint256 private _nextOrderId = 1;
@@ -39,7 +44,7 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
     // ============================================================
 
     /// @param token_ Alamat token ERC20 yang digunakan sebagai principal.
-    constructor(address token_) {
+    constructor(address token_) Ownable(msg.sender) {
         require(token_ != address(0), "Token address cannot be zero");
         token = IERC20(token_);
     }
@@ -121,11 +126,11 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
     /// @inheritdoc ICLOBEngine
     function matchOrders(FiebleTypes.TenorBucket tenor) external nonReentrant returns (uint256 positionId) {
         // Cari best lend order (rate terendah, time paling awal)
-        uint256 bestLendId = _findBestOrder(tenor, FiebleTypes.OrderSide.Lend, true);
+        uint256 bestLendId = _findBestOrder(tenor, FiebleTypes.OrderSide.Lend, true, address(0));
         if (bestLendId == 0) revert NoMatchingOrder();
 
         // Cari best borrow order (rate tertinggi, time paling awal)
-        uint256 bestBorrowId = _findBestOrder(tenor, FiebleTypes.OrderSide.Borrow, false);
+        uint256 bestBorrowId = _findBestOrder(tenor, FiebleTypes.OrderSide.Borrow, false, address(0));
         if (bestBorrowId == 0) revert NoMatchingOrder();
 
         FiebleTypes.Order storage lendOrder = _orders[bestLendId];
@@ -183,6 +188,107 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
         emit OrderMatched(positionId, bestLendId, bestBorrowId, matchAmount, executionRate, tenor);
     }
 
+    /// @inheritdoc ICLOBEngine
+    function executeMarketOrder(
+        FiebleTypes.OrderSide side,
+        FiebleTypes.TenorBucket tenor,
+        uint256 amount,
+        uint256 maxSlippageRate
+    ) external nonReentrant returns (uint256 positionId) {
+        if (amount < FiebleTypes.MIN_ORDER_AMOUNT) {
+            revert InvalidAmount(amount);
+        }
+        if (ammFallback == address(0)) {
+            revert AMMFallbackNotConfigured();
+        }
+
+        uint256 remainingAmount = amount;
+        uint256 clobMatchedAmount = 0;
+        uint256 weightedRateSum = 0;
+        uint256 lastPositionId = 0;
+
+        FiebleTypes.OrderSide oppositeSide =
+            (side == FiebleTypes.OrderSide.Lend) ? FiebleTypes.OrderSide.Borrow : FiebleTypes.OrderSide.Lend;
+
+        // === TAHAP 1: MATCHING CLOB ORGANIK TERLEBIH DAHULU ===
+        while (remainingAmount > 0) {
+            bool isAscending = (oppositeSide == FiebleTypes.OrderSide.Lend);
+            uint256 bestOrderId = _findBestOrder(tenor, oppositeSide, isAscending, msg.sender);
+            if (bestOrderId == 0) break;
+
+            FiebleTypes.Order storage makerOrder = _orders[bestOrderId];
+
+            // Validasi batas rate toleransi taker
+            if (side == FiebleTypes.OrderSide.Borrow && makerOrder.rate > maxSlippageRate && maxSlippageRate > 0) {
+                break;
+            }
+            if (side == FiebleTypes.OrderSide.Lend && makerOrder.rate < maxSlippageRate && maxSlippageRate > 0) {
+                break;
+            }
+
+            uint256 availableInOrder = makerOrder.amount - makerOrder.filledAmount;
+            uint256 fillAmount = remainingAmount < availableInOrder ? remainingAmount : availableInOrder;
+
+            makerOrder.filledAmount += fillAmount;
+            if (makerOrder.filledAmount == makerOrder.amount) {
+                makerOrder.status = FiebleTypes.OrderStatus.Filled;
+            }
+
+            weightedRateSum += fillAmount * makerOrder.rate;
+            clobMatchedAmount += fillAmount;
+            remainingAmount -= fillAmount;
+
+            lastPositionId =
+                _recordMarketCLOBFill(side, tenor, bestOrderId, makerOrder.maker, fillAmount, makerOrder.rate);
+        }
+
+        // === TAHAP 2: RESIDUAL ROUTING KE AMM FALLBACK ===
+        uint256 ammMatchedAmount = 0;
+
+        if (remainingAmount > 0) {
+            ammMatchedAmount = remainingAmount;
+            uint256 ammRate;
+
+            if (side == FiebleTypes.OrderSide.Lend) {
+                token.safeTransferFrom(msg.sender, address(this), remainingAmount);
+                token.forceApprove(ammFallback, remainingAmount);
+                ammRate = IAMMFallback(ammFallback).swap(side, tenor, remainingAmount, maxSlippageRate, address(this));
+            } else {
+                ammRate = IAMMFallback(ammFallback).swap(side, tenor, remainingAmount, maxSlippageRate, msg.sender);
+            }
+
+            weightedRateSum += remainingAmount * ammRate;
+
+            lastPositionId = _recordAMMPosition(side, tenor, remainingAmount, ammRate);
+            remainingAmount = 0;
+        }
+
+        uint256 effectiveRate = weightedRateSum / amount;
+
+        emit MarketOrderExecuted(
+            lastPositionId, msg.sender, side, tenor, amount, clobMatchedAmount, ammMatchedAmount, effectiveRate
+        );
+
+        return lastPositionId;
+    }
+
+    // ============================================================
+    //                      ADMIN FUNCTIONS
+    // ============================================================
+
+    /// @inheritdoc ICLOBEngine
+    function setAMMFallback(address ammFallbackAddress) external onlyOwner {
+        if (ammFallbackAddress == address(0)) revert AMMFallbackNotConfigured();
+        address previous = ammFallback;
+        ammFallback = ammFallbackAddress;
+        emit AMMFallbackSet(previous, ammFallbackAddress);
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function getAMMFallback() external view returns (address) {
+        return ammFallback;
+    }
+
     // ============================================================
     //                      VIEW FUNCTIONS
     // ============================================================
@@ -208,13 +314,72 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
     //                      INTERNAL FUNCTIONS
     // ============================================================
 
+    /// @notice Catat posisi kredit untuk fill organik CLOB dan kirim token.
+    function _recordMarketCLOBFill(
+        FiebleTypes.OrderSide side,
+        FiebleTypes.TenorBucket tenor,
+        uint256 bestOrderId,
+        address maker,
+        uint256 fillAmount,
+        uint256 rate
+    ) internal returns (uint256 posId) {
+        posId = _nextPositionId++;
+        uint256 lendOrderId = (side == FiebleTypes.OrderSide.Lend) ? 0 : bestOrderId;
+        uint256 borrowOrderId = (side == FiebleTypes.OrderSide.Borrow) ? 0 : bestOrderId;
+
+        _positions[posId] = FiebleTypes.Position({
+            id: posId,
+            lendOrderId: lendOrderId,
+            borrowOrderId: borrowOrderId,
+            lender: (side == FiebleTypes.OrderSide.Lend) ? msg.sender : maker,
+            borrower: (side == FiebleTypes.OrderSide.Borrow) ? msg.sender : maker,
+            tenor: tenor,
+            rate: rate,
+            amount: fillAmount,
+            startTime: block.timestamp,
+            maturityTime: block.timestamp + FiebleTypes.tenorToDuration(tenor),
+            settled: false
+        });
+
+        if (side == FiebleTypes.OrderSide.Lend) {
+            token.safeTransferFrom(msg.sender, maker, fillAmount);
+        } else {
+            token.safeTransfer(msg.sender, fillAmount);
+        }
+
+        emit OrderMatched(posId, lendOrderId, borrowOrderId, fillAmount, rate, tenor);
+    }
+
+    /// @notice Catat posisi kredit untuk residual AMM Fallback.
+    function _recordAMMPosition(FiebleTypes.OrderSide side, FiebleTypes.TenorBucket tenor, uint256 amount, uint256 rate)
+        internal
+        returns (uint256 posId)
+    {
+        posId = _nextPositionId++;
+        _positions[posId] = FiebleTypes.Position({
+            id: posId,
+            lendOrderId: 0,
+            borrowOrderId: 0,
+            lender: (side == FiebleTypes.OrderSide.Lend) ? msg.sender : ammFallback,
+            borrower: (side == FiebleTypes.OrderSide.Borrow) ? msg.sender : ammFallback,
+            tenor: tenor,
+            rate: rate,
+            amount: amount,
+            startTime: block.timestamp,
+            maturityTime: block.timestamp + FiebleTypes.tenorToDuration(tenor),
+            settled: false
+        });
+    }
+
     /// @notice Cari order terbaik di bucket.
     /// @param ascending true = cari rate terendah (untuk lend), false = cari rate tertinggi (untuk borrow)
-    function _findBestOrder(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side, bool ascending)
-        internal
-        view
-        returns (uint256 bestOrderId)
-    {
+    /// @param excludeMaker Alamat maker yang diabaikan (untuk mencegah self-trade saat market order)
+    function _findBestOrder(
+        FiebleTypes.TenorBucket tenor,
+        FiebleTypes.OrderSide side,
+        bool ascending,
+        address excludeMaker
+    ) internal view returns (uint256 bestOrderId) {
         bytes32 key = _bucketKey(tenor, side);
         uint256[] storage orderIds = _bucketOrderIds[key];
 
@@ -227,6 +392,7 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard {
             // Skip order yang bukan Open atau sudah fully filled
             if (order.status != FiebleTypes.OrderStatus.Open) continue;
             if (order.filledAmount >= order.amount) continue;
+            if (excludeMaker != address(0) && order.maker == excludeMaker) continue;
 
             bool isBetter;
             if (ascending) {
