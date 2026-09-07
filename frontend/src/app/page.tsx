@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function Home() {
   return (
     <div className="flex flex-col flex-1 items-center justify-center min-h-screen bg-[#0F172A]">
@@ -10,18 +12,18 @@ export default function Home() {
           Set your own rate. Choose your tenor. Get matched.
         </p>
         <div className="flex gap-4">
-          <a
+          <Link
             href="/orderbook"
             className="rounded-full bg-[#2563EB] px-6 py-3 text-white font-medium hover:bg-[#1d4ed8] transition-colors"
           >
             Open Order Book
-          </a>
-          <a
+          </Link>
+          <Link
             href="/positions"
             className="rounded-full border border-[#64748B] px-6 py-3 text-[#F1F5F9] font-medium hover:bg-white/5 transition-colors"
           >
             My Positions
-          </a>
+          </Link>
         </div>
       </main>
     </div>
