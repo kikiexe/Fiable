@@ -1,0 +1,30 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+*.swp
+*.swo
+
+# Node / JS
+node_modules/
+dist/
+.next/
+.turbo/
+
+# Foundry / Smart Contracts
+contract/cache/
+contract/out/
+!contract/broadcast
+contract/broadcast/*/31337/
+contract/broadcast/**/dry-run/
+
+graphify-out/
+.codegraph/
+md/
