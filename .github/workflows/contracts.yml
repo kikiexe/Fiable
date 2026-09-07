@@ -1,0 +1,43 @@
+name: Smart Contracts
+
+on:
+  push:
+    branches: [main, sc]
+    paths:
+      - 'contract/**'
+      - '.github/workflows/contracts.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contract/**'
+      - '.github/workflows/contracts.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Forge Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contract
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Check Formatting
+        run: forge fmt --check
+
+      - name: Build Contracts
+        run: forge build
+
+      - name: Run Tests
+        run: forge test -vvv
