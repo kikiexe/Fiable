@@ -119,7 +119,7 @@ contract AMMFallbackTest is Test {
         token.mint(owner, lendAmount);
         token.approve(address(amm), lendAmount);
 
-        vm.prank(owner);
+        // owner is already address(this), no prank needed
         uint256 rate = amm.swap(
             FiebleTypes.OrderSide.Lend,
             FiebleTypes.TenorBucket.OneMonth,
@@ -133,12 +133,48 @@ contract AMMFallbackTest is Test {
         assertEq(totalLiqAfter, totalLiqBefore + lendAmount, "Pool liquidity should increase after lend swap");
     }
 
+    function testRevert_SetRateModel_InvalidUtilization() public {
+        // optimalUtilization = 0
+        vm.expectRevert(abi.encodeWithSelector(IAMMFallback.InvalidOptimalUtilization.selector, 0));
+        amm.setRateModel(500, 0, 400, 3000, 150);
+
+        // optimalUtilization = 10000 (BPS_SCALE)
+        vm.expectRevert(abi.encodeWithSelector(IAMMFallback.InvalidOptimalUtilization.selector, 10_000));
+        amm.setRateModel(500, 10_000, 400, 3000, 150);
+    }
+
+    function testRevert_SetRateModel_RateExceedsMax() public {
+        // baseRate (2000) + slope1 (1500) + slope2 (2000) + spread (150) = 5650 > MAX_RATE_BPS (5000)
+        vm.expectRevert(abi.encodeWithSelector(IAMMFallback.RateExceedsMax.selector, 5650, FiebleTypes.MAX_RATE_BPS));
+        amm.setRateModel(2000, 8000, 1500, 2000, 150);
+
+        // N3: base (2000) + slope1 (1500) + slope2 (1450) = 4950 <= 5000, but + spread (200) = 5150 > 5000
+        vm.expectRevert(abi.encodeWithSelector(IAMMFallback.RateExceedsMax.selector, 5150, FiebleTypes.MAX_RATE_BPS));
+        amm.setRateModel(2000, 5000, 1500, 1450, 200);
+    }
+
+    function test_Swap_BorrowCannotDrainTakerLendLiquidity() public {
+        uint256 lpDeposit = 10_000e6;
+        vm.prank(lpProvider);
+        amm.addLiquidity(FiebleTypes.TenorBucket.OneMonth, lpDeposit);
+
+        // Taker lends 10_000 USDC
+        uint256 takerLendAmount = 10_000e6;
+        token.mint(owner, takerLendAmount);
+        token.approve(address(amm), takerLendAmount);
+        amm.swap(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, takerLendAmount, 0, owner);
+
+        // Borrower tries to borrow 15_000 USDC.
+        // Total tokens in AMM contract is 20_000 USDC, but only LP deposit (10_000 USDC) is available to borrow.
+        vm.expectRevert(abi.encodeWithSelector(IAMMFallback.InsufficientPoolLiquidity.selector, 15_000e6, 10_000e6));
+        amm.swap(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 15_000e6, 0, takerBorrower);
+    }
+
     function testRevert_SlippageExceeded() public {
         uint256 poolFund = 100_000e6;
         vm.prank(lpProvider);
         amm.addLiquidity(FiebleTypes.TenorBucket.OneMonth, poolFund);
 
-        vm.prank(owner);
         // Borrower memberi maxSlippageRate 500 bps padahal quote rate minimal 650 bps
         vm.expectRevert();
         amm.swap(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 10_000e6, 500, takerBorrower);
@@ -154,7 +190,6 @@ contract AMMFallbackTest is Test {
 
         vm.warp(block.timestamp + 1 days);
 
-        vm.prank(owner);
         amm.swap(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 30_000e6, 2_000, takerBorrower);
 
         uint256 twapUpdated = amm.getTWAP(FiebleTypes.TenorBucket.OneMonth);
@@ -171,7 +206,6 @@ contract AMMFallbackTest is Test {
         token.mint(owner, takerLendAmount);
         token.approve(address(amm), takerLendAmount);
 
-        vm.prank(owner);
         amm.swap(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, takerLendAmount, 0, owner);
 
         // LP attempts to withdraw all shares to steal taker funds

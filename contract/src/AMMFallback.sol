@@ -11,7 +11,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
-    using YieldCurveMath for YieldCurveMath.CurveConfig;
 
     // ============================================================
     //                      STATE VARIABLES
@@ -73,6 +72,14 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
         uint256 slope2,
         uint256 spreadBps
     ) external onlyOwner {
+        if (optimalUtilization == 0 || optimalUtilization >= YieldCurveMath.BPS_SCALE) {
+            revert InvalidOptimalUtilization(optimalUtilization);
+        }
+        uint256 totalRate = baseRate + slope1 + slope2;
+        if (totalRate + spreadBps > FiebleTypes.MAX_RATE_BPS) {
+            revert RateExceedsMax(totalRate + spreadBps, FiebleTypes.MAX_RATE_BPS);
+        }
+
         curveConfig = YieldCurveMath.CurveConfig({
             baseRate: baseRate,
             optimalUtilization: optimalUtilization,
@@ -107,13 +114,13 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
             sharesMinted = (amount * pool.totalShares) / pool.totalLiquidity;
         }
 
+        token.safeTransferFrom(msg.sender, address(this), amount);
+
         pool.shares[msg.sender] += sharesMinted;
         pool.totalShares += sharesMinted;
         pool.totalLiquidity += amount;
 
         _updateTWAP(tenor);
-
-        token.safeTransferFrom(msg.sender, address(this), amount);
 
         emit LiquidityAdded(msg.sender, tenor, amount, sharesMinted);
     }
@@ -184,7 +191,9 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
                 revert SlippageLimitExceeded(executionRate, maxSlippageRate);
             }
 
-            uint256 available = poolTotal > pool.borrowedLiquidity ? poolTotal - pool.borrowedLiquidity : 0;
+            // Likuiditas yang bisa dipinjam HANYA dari modal pasif LP (totalLiquidity), BUKAN dari takerLentLiquidity
+            uint256 available =
+                pool.totalLiquidity > pool.borrowedLiquidity ? pool.totalLiquidity - pool.borrowedLiquidity : 0;
             if (amount > available) {
                 revert InsufficientPoolLiquidity(amount, available);
             }
@@ -205,6 +214,73 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
         _updateTWAPWithRate(tenor, executionRate);
 
         emit AMMSwapped(recipient, side, tenor, amount, executionRate);
+    }
+
+    // ============================================================
+    //                      REPAYMENT FUNCTIONS
+    // ============================================================
+
+    /// @inheritdoc IAMMFallback
+    function repayBorrow(FiebleTypes.TenorBucket tenor, uint256 principalAmount, uint256 interestAmount)
+        external
+        nonReentrant
+        onlyAuthorizedRouter
+    {
+        BucketPool storage pool = _pools[tenor];
+
+        if (pool.borrowedLiquidity >= principalAmount) {
+            pool.borrowedLiquidity -= principalAmount;
+        } else {
+            pool.borrowedLiquidity = 0;
+        }
+
+        // Bunga pelunasan menambah modal cadangan LP (akrual yield)
+        pool.totalLiquidity += interestAmount;
+
+        _updateTWAP(tenor);
+
+        emit AMMBorrowRepaid(tenor, principalAmount, interestAmount);
+    }
+
+    /// @inheritdoc IAMMFallback
+    /// @dev KNOWN LIMITATION (N4): Asset-Liability Duration Mismatch.
+    ///      Jika utilisasi pool tinggi dan peminjam belum melunasi pinjaman saat posisi lender jatuh tempo,
+    ///      likuiditas kas kontrak AMMFallback mungkin sementara tidak mencukupi untuk mencairkan totalPayout.
+    ///      Mitigasi produksi: fixed epoch settlement dates (seperti Notional Finance) atau redemption queue.
+    function repayLender(FiebleTypes.TenorBucket tenor, address lender, uint256 principalAmount, uint256 interestAmount)
+        external
+        nonReentrant
+        onlyAuthorizedRouter
+    {
+        if (lender == address(0)) revert ZeroAddress();
+
+        uint256 totalPayout = principalAmount + interestAmount;
+        uint256 contractBalance = token.balanceOf(address(this));
+        if (contractBalance < totalPayout) {
+            revert InsufficientPoolLiquidity(totalPayout, contractBalance);
+        }
+
+        BucketPool storage pool = _pools[tenor];
+
+        // Kurangi pokok dari takerLentLiquidity
+        if (pool.takerLentLiquidity >= principalAmount) {
+            pool.takerLentLiquidity -= principalAmount;
+        } else {
+            pool.takerLentLiquidity = 0;
+        }
+
+        // Bunga ditarik dari modal/keuntungan LP
+        if (pool.totalLiquidity >= interestAmount) {
+            pool.totalLiquidity -= interestAmount;
+        } else {
+            pool.totalLiquidity = 0;
+        }
+
+        token.safeTransfer(lender, totalPayout);
+
+        _updateTWAP(tenor);
+
+        emit AMMLenderRepaid(tenor, lender, principalAmount, interestAmount);
     }
 
     // ============================================================
@@ -254,16 +330,13 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
             return curveConfig.baseRate;
         }
 
-        uint256 timeElapsed = block.timestamp - pool.lastUpdateTimestamp;
-        if (timeElapsed == 0 && pool.cumulativeRate == 0) {
-            return pool.lastRecordedRate;
-        }
-
-        uint256 totalCumulative = pool.cumulativeRate + (pool.lastRecordedRate * timeElapsed);
         uint256 totalDuration = block.timestamp - pool.creationTimestamp;
         if (totalDuration == 0) {
             return pool.lastRecordedRate;
         }
+
+        uint256 timeElapsed = block.timestamp - pool.lastUpdateTimestamp;
+        uint256 totalCumulative = pool.cumulativeRate + (pool.lastRecordedRate * timeElapsed);
         return totalCumulative / totalDuration;
     }
 

@@ -212,7 +212,7 @@ contract CLOBEngineTest is Test {
     }
 
     // ============================================================
-    //                      getOrderCount
+    //                      getOrderCount & getTotalOrderCount
     // ============================================================
 
     function test_GetOrderCount() public {
@@ -222,5 +222,150 @@ contract CLOBEngineTest is Test {
         assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
         assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Borrow), 0);
         assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneWeek, FiebleTypes.OrderSide.Lend), 0);
+    }
+
+    function test_ActiveOrderCount_Tracking() public {
+        vm.prank(lender);
+        uint256 lendId = engine.placeOrder(
+            FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT
+        );
+
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
+        assertEq(engine.getTotalOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
+
+        // Cancel order -> active decreases to 0, total remains 1
+        vm.prank(lender);
+        engine.cancelOrder(lendId);
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 0);
+        assertEq(engine.getTotalOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
+
+        // Place new order and match -> active becomes 0, total becomes 2
+        usdc.mint(lender, ORDER_AMOUNT);
+        vm.prank(lender);
+        engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+
+        vm.prank(borrower);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 600, ORDER_AMOUNT);
+
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Borrow), 1);
+
+        engine.matchOrders(FiebleTypes.TenorBucket.OneMonth);
+
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 0);
+        assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Borrow), 0);
+        assertEq(engine.getTotalOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 2);
+        assertEq(engine.getTotalOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Borrow), 1);
+    }
+
+    // ============================================================
+    //                      Self-Match Alternative (H5)
+    // ============================================================
+
+    function test_MatchOrders_SelfMatch_SkipToNextBest() public {
+        address charlie = address(0x444);
+        usdc.mint(charlie, 1_000_000e6);
+        vm.prank(charlie);
+        usdc.approve(address(engine), type(uint256).max);
+
+        // Lender (Alice) pasang Lend di 5% dan Borrow di 7%
+        usdc.mint(lender, ORDER_AMOUNT);
+        vm.startPrank(lender);
+        engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 700, ORDER_AMOUNT);
+        vm.stopPrank();
+
+        // Charlie pasang Borrow di 6% (rate crosses Alice's Lend 5%)
+        vm.prank(charlie);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 600, ORDER_AMOUNT);
+
+        // matchOrders should NOT revert SelfMatchNotAllowed; it should match Alice's Lend with Charlie's Borrow!
+        uint256 positionId = engine.matchOrders(FiebleTypes.TenorBucket.OneMonth);
+        assertGt(positionId, 0);
+
+        FiebleTypes.Position memory pos = engine.getPosition(positionId);
+        assertEq(pos.lender, lender);
+        assertEq(pos.borrower, charlie);
+        assertEq(pos.amount, ORDER_AMOUNT);
+    }
+
+    // ============================================================
+    //                      settlePosition (C1)
+    // ============================================================
+
+    function test_SettlePosition_Success() public {
+        vm.prank(lender);
+        engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+
+        vm.prank(borrower);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 600, ORDER_AMOUNT);
+
+        uint256 positionId = engine.matchOrders(FiebleTypes.TenorBucket.OneMonth);
+        FiebleTypes.Position memory pos = engine.getPosition(positionId);
+
+        // Calculate expected repayment
+        uint256 duration = 30 days;
+        uint256 interest = (pos.amount * pos.rate * duration) / (FiebleTypes.BPS_DENOMINATOR * 365 days);
+        uint256 totalRepayment = pos.amount + interest;
+
+        // Mint extra interest tokens to borrower and approve engine
+        usdc.mint(borrower, interest);
+        vm.prank(borrower);
+        usdc.approve(address(engine), totalRepayment);
+
+        // Warp past maturity
+        vm.warp(pos.maturityTime + 1);
+
+        uint256 lenderBalanceBefore = usdc.balanceOf(lender);
+        engine.settlePosition(positionId);
+
+        FiebleTypes.Position memory settledPos = engine.getPosition(positionId);
+        assertTrue(settledPos.settled);
+        assertEq(usdc.balanceOf(lender), lenderBalanceBefore + totalRepayment);
+    }
+
+    function testRevert_SettlePosition_NotMatured() public {
+        vm.prank(lender);
+        engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+
+        vm.prank(borrower);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 600, ORDER_AMOUNT);
+
+        uint256 positionId = engine.matchOrders(FiebleTypes.TenorBucket.OneMonth);
+        FiebleTypes.Position memory pos = engine.getPosition(positionId);
+
+        vm.warp(pos.maturityTime - 1 hours);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICLOBEngine.PositionNotMatured.selector, positionId, pos.maturityTime, block.timestamp
+            )
+        );
+        engine.settlePosition(positionId);
+    }
+
+    function testRevert_SettlePosition_AlreadySettled() public {
+        vm.prank(lender);
+        engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+
+        vm.prank(borrower);
+        engine.placeOrder(FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneMonth, 600, ORDER_AMOUNT);
+
+        uint256 positionId = engine.matchOrders(FiebleTypes.TenorBucket.OneMonth);
+        FiebleTypes.Position memory pos = engine.getPosition(positionId);
+
+        uint256 duration = 30 days;
+        uint256 interest = (pos.amount * pos.rate * duration) / (FiebleTypes.BPS_DENOMINATOR * 365 days);
+        uint256 totalRepayment = pos.amount + interest;
+
+        usdc.mint(borrower, interest);
+        vm.prank(borrower);
+        usdc.approve(address(engine), totalRepayment);
+
+        vm.warp(pos.maturityTime + 1);
+        engine.settlePosition(positionId);
+
+        vm.expectRevert(abi.encodeWithSelector(ICLOBEngine.PositionAlreadySettled.selector, positionId));
+        engine.settlePosition(positionId);
     }
 }

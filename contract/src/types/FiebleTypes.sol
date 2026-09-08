@@ -80,6 +80,12 @@ library FiebleTypes {
     uint256 constant MIN_ORDER_AMOUNT = 1e4;
 
     // ============================================================
+    //                      ERRORS
+    // ============================================================
+
+    error InvalidTenor();
+
+    // ============================================================
     //                      HELPER FUNCTIONS
     // ============================================================
 
@@ -89,6 +95,6 @@ library FiebleTypes {
         if (tenor == TenorBucket.OneMonth) return TENOR_ONE_MONTH;
         if (tenor == TenorBucket.ThreeMonths) return TENOR_THREE_MONTHS;
         if (tenor == TenorBucket.OneYear) return TENOR_ONE_YEAR;
-        revert("Invalid tenor");
+        revert InvalidTenor();
     }
 }

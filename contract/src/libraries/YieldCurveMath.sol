@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {FiebleTypes} from "../types/FiebleTypes.sol";
+
 library YieldCurveMath {
     // ============================================================
     //                      CONSTANTS (BPS)
@@ -69,7 +71,8 @@ library YieldCurveMath {
         returns (uint256 effectiveRate)
     {
         if (isBorrow) {
-            return curveRate + spreadBps;
+            uint256 rate = curveRate + spreadBps;
+            return rate > FiebleTypes.MAX_RATE_BPS ? FiebleTypes.MAX_RATE_BPS : rate;
         } else {
             if (curveRate <= spreadBps) {
                 return 10; // Floor rate 0.10% untuk mencegah rate nol

@@ -28,6 +28,12 @@ interface IAMMFallback {
         uint256 baseRate, uint256 optimalUtilization, uint256 slope1, uint256 slope2, uint256 spreadBps
     );
 
+    event AMMBorrowRepaid(FiebleTypes.TenorBucket indexed tenor, uint256 principalAmount, uint256 interestAmount);
+
+    event AMMLenderRepaid(
+        FiebleTypes.TenorBucket indexed tenor, address indexed lender, uint256 principalAmount, uint256 interestAmount
+    );
+
     // ============================================================
     //                      ERRORS
     // ============================================================
@@ -38,6 +44,8 @@ interface IAMMFallback {
     error InsufficientShares(uint256 requested, uint256 available);
     error SlippageLimitExceeded(uint256 actualRate, uint256 maxSlippageRate);
     error OnlyCLOBEngineAllowed(address caller, address authorizedCLOB);
+    error InvalidOptimalUtilization(uint256 optimalUtilization);
+    error RateExceedsMax(uint256 totalRate, uint256 maxRate);
 
     // ============================================================
     //                      FUNCTIONS
@@ -94,4 +102,18 @@ interface IAMMFallback {
 
     /// @notice Mengambil harga rate rata-rata terbobot waktu (TWAP) per bucket tenor.
     function getTWAP(FiebleTypes.TenorBucket tenor) external view returns (uint256 twapRate);
+
+    /// @notice Pelunasan pinjaman borrower ke AMM pool saat maturity.
+    /// @param tenor Bucket tenor pinjaman.
+    /// @param principalAmount Pokok pinjaman yang dikembalikan.
+    /// @param interestAmount Bunga pinjaman yang dialokasikan ke pool LP.
+    function repayBorrow(FiebleTypes.TenorBucket tenor, uint256 principalAmount, uint256 interestAmount) external;
+
+    /// @notice Pencairan pokok dan bunga oleh AMM ke taker lender saat maturity.
+    /// @param tenor Bucket tenor penempatan.
+    /// @param lender Alamat penerima dana (lender).
+    /// @param principalAmount Pokok yang dicairkan dari takerLentLiquidity.
+    /// @param interestAmount Bunga yang dibayarkan dari cadangan LP.
+    function repayLender(FiebleTypes.TenorBucket tenor, address lender, uint256 principalAmount, uint256 interestAmount)
+        external;
 }
