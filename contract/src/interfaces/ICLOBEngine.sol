@@ -41,10 +41,13 @@ interface ICLOBEngine {
 
     event AMMFallbackSet(address indexed previousAddress, address indexed newAddress);
 
+    event PositionSettled(uint256 indexed positionId, uint256 totalRepayment);
+
     // ============================================================
     //                      ERRORS
     // ============================================================
 
+    error ZeroAddress();
     error InvalidRate(uint256 rate);
     error InvalidAmount(uint256 amount);
     error OrderNotFound(uint256 orderId);
@@ -55,6 +58,9 @@ interface ICLOBEngine {
     error SelfMatchNotAllowed();
     error AMMFallbackNotConfigured();
     error SlippageExceeded(uint256 actualRate, uint256 maxSlippageRate);
+    error PositionNotFound(uint256 positionId);
+    error PositionAlreadySettled(uint256 positionId);
+    error PositionNotMatured(uint256 positionId, uint256 maturityTime, uint256 currentTime);
 
     // ============================================================
     //                      FUNCTIONS
@@ -104,6 +110,16 @@ interface ICLOBEngine {
     /// @notice Baca detail posisi by ID.
     function getPosition(uint256 positionId) external view returns (FiebleTypes.Position memory);
 
-    /// @notice Ambil jumlah total order aktif di bucket tertentu.
+    /// @notice Ambil jumlah order aktif saat ini di bucket tertentu.
     function getOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side) external view returns (uint256);
+
+    /// @notice Ambil jumlah total order historis di bucket tertentu.
+    function getTotalOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side)
+        external
+        view
+        returns (uint256);
+
+    /// @notice Settle pinjaman yang jatuh tempo: transfer pokok + bunga dari borrower ke lender.
+    /// @param positionId ID posisi kredit yang akan diselesaikan.
+    function settlePosition(uint256 positionId) external;
 }

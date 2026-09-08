@@ -11,7 +11,6 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
-    using FiebleTypes for FiebleTypes.TenorBucket;
 
     // ============================================================
     //                      STATE VARIABLES
@@ -37,7 +36,11 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
     /// @notice Order IDs per (tenor, side), untuk iterasi saat matching.
     /// Key: keccak256(abi.encode(tenor, side)) => array of order IDs.
+    /// @dev KNOWN LIMITATION: O(n) scan with unbounded array growth. Not production viable. Planned migration to doubly-linked list or sorted red-black tree.
     mapping(bytes32 bucketKey => uint256[]) private _bucketOrderIds;
+
+    /// @notice Jumlah order berstatus Open per bucket.
+    mapping(bytes32 bucketKey => uint256) private _activeOrderCount;
 
     // ============================================================
     //                      CONSTRUCTOR
@@ -45,7 +48,7 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
     /// @param token_ Alamat token ERC20 yang digunakan sebagai principal.
     constructor(address token_) Ownable(msg.sender) {
-        require(token_ != address(0), "Token address cannot be zero");
+        if (token_ == address(0)) revert ZeroAddress();
         token = IERC20(token_);
     }
 
@@ -94,6 +97,7 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
         bytes32 key = _bucketKey(tenor, side);
         _bucketOrderIds[key].push(orderId);
+        _activeOrderCount[key]++;
 
         // --- EVENT ---
         emit OrderPlaced(orderId, msg.sender, side, tenor, rate, amount);
@@ -110,6 +114,10 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
         // --- EFFECTS ---
         order.status = FiebleTypes.OrderStatus.Cancelled;
+        bytes32 key = _bucketKey(order.tenor, order.side);
+        if (_activeOrderCount[key] > 0) {
+            _activeOrderCount[key]--;
+        }
 
         // --- INTERACTIONS ---
         // Kembalikan token ke lender jika ada deposit.
@@ -136,11 +144,37 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         FiebleTypes.Order storage lendOrder = _orders[bestLendId];
         FiebleTypes.Order storage borrowOrder = _orders[bestBorrowId];
 
+        // Self-match handling: jika top order memiliki maker yang sama, coba cari alternatif yang bersilangan
+        if (lendOrder.maker == borrowOrder.maker) {
+            uint256 altBorrowId = _findBestOrder(tenor, FiebleTypes.OrderSide.Borrow, false, lendOrder.maker);
+            uint256 altLendId = _findBestOrder(tenor, FiebleTypes.OrderSide.Lend, true, borrowOrder.maker);
+
+            bool canAltBorrow = (altBorrowId != 0 && lendOrder.rate <= _orders[altBorrowId].rate);
+            bool canAltLend = (altLendId != 0 && _orders[altLendId].rate <= borrowOrder.rate);
+
+            if (canAltBorrow && canAltLend) {
+                uint256 surplusBorrow = _orders[altBorrowId].rate - lendOrder.rate;
+                uint256 surplusLend = borrowOrder.rate - _orders[altLendId].rate;
+                if (surplusBorrow >= surplusLend) {
+                    bestBorrowId = altBorrowId;
+                    borrowOrder = _orders[bestBorrowId];
+                } else {
+                    bestLendId = altLendId;
+                    lendOrder = _orders[bestLendId];
+                }
+            } else if (canAltBorrow) {
+                bestBorrowId = altBorrowId;
+                borrowOrder = _orders[bestBorrowId];
+            } else if (canAltLend) {
+                bestLendId = altLendId;
+                lendOrder = _orders[bestLendId];
+            } else {
+                revert SelfMatchNotAllowed();
+            }
+        }
+
         // Rate lend harus <= rate borrow untuk match
         if (lendOrder.rate > borrowOrder.rate) revert NoMatchingOrder();
-
-        // Self-match prevention
-        if (lendOrder.maker == borrowOrder.maker) revert SelfMatchNotAllowed();
 
         // Tentukan match amount
         uint256 matchAmount;
@@ -159,9 +193,17 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
         if (lendOrder.filledAmount == lendOrder.amount) {
             lendOrder.status = FiebleTypes.OrderStatus.Filled;
+            bytes32 lendKey = _bucketKey(tenor, FiebleTypes.OrderSide.Lend);
+            if (_activeOrderCount[lendKey] > 0) {
+                _activeOrderCount[lendKey]--;
+            }
         }
         if (borrowOrder.filledAmount == borrowOrder.amount) {
             borrowOrder.status = FiebleTypes.OrderStatus.Filled;
+            bytes32 borrowKey = _bucketKey(tenor, FiebleTypes.OrderSide.Borrow);
+            if (_activeOrderCount[borrowKey] > 0) {
+                _activeOrderCount[borrowKey]--;
+            }
         }
 
         // Buat posisi baru
@@ -232,6 +274,10 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
             makerOrder.filledAmount += fillAmount;
             if (makerOrder.filledAmount == makerOrder.amount) {
                 makerOrder.status = FiebleTypes.OrderStatus.Filled;
+                bytes32 makerKey = _bucketKey(tenor, oppositeSide);
+                if (_activeOrderCount[makerKey] > 0) {
+                    _activeOrderCount[makerKey]--;
+                }
             }
 
             weightedRateSum += fillAmount * makerOrder.rate;
@@ -307,7 +353,41 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
     /// @inheritdoc ICLOBEngine
     function getOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side) external view returns (uint256) {
+        return _activeOrderCount[_bucketKey(tenor, side)];
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function getTotalOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side) external view returns (uint256) {
         return _bucketOrderIds[_bucketKey(tenor, side)].length;
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function settlePosition(uint256 positionId) external nonReentrant {
+        FiebleTypes.Position storage pos = _positions[positionId];
+        if (pos.id == 0) revert PositionNotFound(positionId);
+        if (pos.settled) revert PositionAlreadySettled(positionId);
+        if (block.timestamp < pos.maturityTime) {
+            revert PositionNotMatured(positionId, pos.maturityTime, block.timestamp);
+        }
+
+        pos.settled = true;
+        uint256 duration = FiebleTypes.tenorToDuration(pos.tenor);
+        uint256 interest = (pos.amount * pos.rate * duration) / (FiebleTypes.BPS_DENOMINATOR * 365 days);
+        uint256 totalRepayment = pos.amount + interest;
+
+        if (pos.lender == ammFallback) {
+            // Borrower melunasi pinjaman ke AMM: transfer token ke AMM dan catat pelunasan
+            token.safeTransferFrom(pos.borrower, ammFallback, totalRepayment);
+            IAMMFallback(ammFallback).repayBorrow(pos.tenor, pos.amount, interest);
+        } else if (pos.borrower == ammFallback) {
+            // Lender mencairkan dana dari AMM: AMM mencairkan pokok + bunga langsung ke lender
+            IAMMFallback(ammFallback).repayLender(pos.tenor, pos.lender, pos.amount, interest);
+        } else {
+            // Posisi kredit P2P CLOB organik antar pengguna
+            token.safeTransferFrom(pos.borrower, pos.lender, totalRepayment);
+        }
+
+        emit PositionSettled(positionId, totalRepayment);
     }
 
     // ============================================================
@@ -369,6 +449,9 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
             maturityTime: block.timestamp + FiebleTypes.tenorToDuration(tenor),
             settled: false
         });
+
+        // Emit OrderMatched dengan orderId=0 untuk memudahkan tracking subgraphs/indexers
+        emit OrderMatched(posId, 0, 0, amount, rate, tenor);
     }
 
     /// @notice Cari order terbaik di bucket.

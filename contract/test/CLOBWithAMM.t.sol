@@ -15,6 +15,7 @@ contract CLOBWithAMMTest is Test {
     address public lp = address(0xAAA);
     address public makerLender = address(0xBBB);
     address public takerBorrower = address(0xCCC);
+    address public takerLender = address(0xDDD);
 
     function setUp() public {
         token = new MockERC20("Mock USDC", "mUSDC", 6);
@@ -27,6 +28,7 @@ contract CLOBWithAMMTest is Test {
         token.mint(lp, 1_000_000e6);
         token.mint(makerLender, 100_000e6);
         token.mint(takerBorrower, 100_000e6);
+        token.mint(takerLender, 100_000e6);
 
         // Seed liquidity ke AMM Fallback
         vm.startPrank(lp);
@@ -38,6 +40,9 @@ contract CLOBWithAMMTest is Test {
         token.approve(address(engine), type(uint256).max);
 
         vm.prank(takerBorrower);
+        token.approve(address(engine), type(uint256).max);
+
+        vm.prank(takerLender);
         token.approve(address(engine), type(uint256).max);
     }
 
@@ -157,5 +162,69 @@ contract CLOBWithAMMTest is Test {
         FiebleTypes.Order memory selfOrder = engine.getOrder(1);
         assertEq(uint256(selfOrder.status), uint256(FiebleTypes.OrderStatus.Open));
         assertEq(selfOrder.filledAmount, 0);
+    }
+
+    function test_SettlePosition_AMMBorrow_Success() public {
+        uint256 borrowAmount = 20_000e6;
+        vm.prank(takerBorrower);
+        uint256 posId = engine.executeMarketOrder(
+            FiebleTypes.OrderSide.Borrow, FiebleTypes.TenorBucket.OneWeek, borrowAmount, 1_000
+        );
+
+        FiebleTypes.Position memory pos = engine.getPosition(posId);
+        assertEq(pos.lender, address(amm), "Counterparty must be AMM for borrow");
+        assertEq(pos.borrower, takerBorrower);
+
+        (uint256 totalLiqBefore, uint256 borrowedBefore,,,) = amm.getPoolInfo(FiebleTypes.TenorBucket.OneWeek);
+        assertEq(borrowedBefore, borrowAmount);
+
+        uint256 duration = FiebleTypes.tenorToDuration(pos.tenor);
+        uint256 interest = (pos.amount * pos.rate * duration) / (FiebleTypes.BPS_DENOMINATOR * 365 days);
+        uint256 totalRepayment = pos.amount + interest;
+
+        token.mint(takerBorrower, interest);
+        vm.prank(takerBorrower);
+        token.approve(address(engine), totalRepayment);
+
+        vm.warp(pos.maturityTime + 1);
+
+        engine.settlePosition(posId);
+
+        FiebleTypes.Position memory settledPos = engine.getPosition(posId);
+        assertTrue(settledPos.settled);
+
+        (uint256 totalLiqAfter, uint256 borrowedAfter,,,) = amm.getPoolInfo(FiebleTypes.TenorBucket.OneWeek);
+        assertEq(borrowedAfter, 0, "AMM borrowed liquidity should be cleared back to 0");
+        assertEq(totalLiqAfter, totalLiqBefore + interest, "LP pool liquidity should accrue earned interest yield");
+    }
+
+    function test_SettlePosition_AMMLend_Success() public {
+        uint256 lendAmount = 20_000e6;
+        vm.prank(takerLender);
+        uint256 posId =
+            engine.executeMarketOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneWeek, lendAmount, 0);
+
+        FiebleTypes.Position memory pos = engine.getPosition(posId);
+        assertEq(pos.lender, takerLender);
+        assertEq(pos.borrower, address(amm), "Counterparty must be AMM for lend");
+
+        uint256 duration = FiebleTypes.tenorToDuration(pos.tenor);
+        uint256 interest = (pos.amount * pos.rate * duration) / (FiebleTypes.BPS_DENOMINATOR * 365 days);
+        uint256 expectedPayout = pos.amount + interest;
+
+        uint256 lenderBalanceBefore = token.balanceOf(takerLender);
+
+        vm.warp(pos.maturityTime + 1);
+
+        engine.settlePosition(posId);
+
+        FiebleTypes.Position memory settledPos = engine.getPosition(posId);
+        assertTrue(settledPos.settled);
+
+        assertEq(
+            token.balanceOf(takerLender),
+            lenderBalanceBefore + expectedPayout,
+            "Lender must receive principal + interest from AMM"
+        );
     }
 }
