@@ -226,8 +226,9 @@ contract CLOBEngineTest is Test {
 
     function test_ActiveOrderCount_Tracking() public {
         vm.prank(lender);
-        uint256 lendId =
-            engine.placeOrder(FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT);
+        uint256 lendId = engine.placeOrder(
+            FiebleTypes.OrderSide.Lend, FiebleTypes.TenorBucket.OneMonth, RATE_5_PERCENT, ORDER_AMOUNT
+        );
 
         assertEq(engine.getOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);
         assertEq(engine.getTotalOrderCount(FiebleTypes.TenorBucket.OneMonth, FiebleTypes.OrderSide.Lend), 1);

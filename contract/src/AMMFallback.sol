@@ -247,12 +247,11 @@ contract AMMFallback is IAMMFallback, ReentrancyGuard, Ownable {
     ///      Jika utilisasi pool tinggi dan peminjam belum melunasi pinjaman saat posisi lender jatuh tempo,
     ///      likuiditas kas kontrak AMMFallback mungkin sementara tidak mencukupi untuk mencairkan totalPayout.
     ///      Mitigasi produksi: fixed epoch settlement dates (seperti Notional Finance) atau redemption queue.
-    function repayLender(
-        FiebleTypes.TenorBucket tenor,
-        address lender,
-        uint256 principalAmount,
-        uint256 interestAmount
-    ) external nonReentrant onlyAuthorizedRouter {
+    function repayLender(FiebleTypes.TenorBucket tenor, address lender, uint256 principalAmount, uint256 interestAmount)
+        external
+        nonReentrant
+        onlyAuthorizedRouter
+    {
         if (lender == address(0)) revert ZeroAddress();
 
         uint256 totalPayout = principalAmount + interestAmount;

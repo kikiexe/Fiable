@@ -28,9 +28,7 @@ interface IAMMFallback {
         uint256 baseRate, uint256 optimalUtilization, uint256 slope1, uint256 slope2, uint256 spreadBps
     );
 
-    event AMMBorrowRepaid(
-        FiebleTypes.TenorBucket indexed tenor, uint256 principalAmount, uint256 interestAmount
-    );
+    event AMMBorrowRepaid(FiebleTypes.TenorBucket indexed tenor, uint256 principalAmount, uint256 interestAmount);
 
     event AMMLenderRepaid(
         FiebleTypes.TenorBucket indexed tenor, address indexed lender, uint256 principalAmount, uint256 interestAmount
@@ -116,10 +114,6 @@ interface IAMMFallback {
     /// @param lender Alamat penerima dana (lender).
     /// @param principalAmount Pokok yang dicairkan dari takerLentLiquidity.
     /// @param interestAmount Bunga yang dibayarkan dari cadangan LP.
-    function repayLender(
-        FiebleTypes.TenorBucket tenor,
-        address lender,
-        uint256 principalAmount,
-        uint256 interestAmount
-    ) external;
+    function repayLender(FiebleTypes.TenorBucket tenor, address lender, uint256 principalAmount, uint256 interestAmount)
+        external;
 }

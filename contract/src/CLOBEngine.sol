@@ -357,7 +357,11 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
     }
 
     /// @inheritdoc ICLOBEngine
-    function getTotalOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side) external view returns (uint256) {
+    function getTotalOrderCount(FiebleTypes.TenorBucket tenor, FiebleTypes.OrderSide side)
+        external
+        view
+        returns (uint256)
+    {
         return _bucketOrderIds[_bucketKey(tenor, side)].length;
     }
 
