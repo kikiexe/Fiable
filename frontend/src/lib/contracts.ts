@@ -48,6 +48,23 @@ export const CLOB_ENGINE_ABI = [
     ],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "getTotalOrderCount",
+    stateMutability: "view",
+    inputs: [
+      { name: "tenor", type: "uint8" },
+      { name: "side", type: "uint8" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "settlePosition",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [],
+  },
 ] as const;
 
 export const AMM_FALLBACK_ABI = [
