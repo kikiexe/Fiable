@@ -19,6 +19,13 @@ interface ICLOBEngine {
 
     event OrderCancelled(uint256 indexed orderId, address indexed maker);
 
+    /// @notice Di-emit saat pesanan berhasil dicocokkan (baik via CLOB organik maupun AMM fallback).
+    /// @dev CATATAN ARSITEKTUR:
+    ///      `matchedAmount` mencerminkan nilai bruto (gross) matching terhadap buku pesanan/pool
+    ///      agar sinkron dengan perubahan order.filledAmount.
+    ///      Posisi kredit yang tercipta (_positions[positionId].amount) menyimpan nilai neto (net amount)
+    ///      setelah dikurangi protocol fee agar peminjam hanya membayar bunga atas dana yang diterima.
+    ///      Rincian pemotongan fee protokol di-emit secara terpisah melalui event `ProtocolFeeCharged`.
     event OrderMatched(
         uint256 indexed positionId,
         uint256 indexed lendOrderId,
@@ -40,6 +47,9 @@ interface ICLOBEngine {
     );
 
     event AMMFallbackSet(address indexed previousAddress, address indexed newAddress);
+
+    event ProtocolFeeCharged(uint256 indexed positionId, address indexed payer, uint256 feeAmount);
+    event FeeRewardControllerSet(address indexed previousController, address indexed newController);
 
     event PositionSettled(uint256 indexed positionId, uint256 totalRepayment);
 
@@ -103,6 +113,12 @@ interface ICLOBEngine {
 
     /// @notice Mengambil alamat kontrak AMMFallback saat ini.
     function getAMMFallback() external view returns (address);
+
+    /// @notice Mengatur alamat kontrak FeeRewardController resmi.
+    function setFeeRewardController(address controllerAddress) external;
+
+    /// @notice Mengambil alamat kontrak FeeRewardController saat ini.
+    function getFeeRewardController() external view returns (address);
 
     /// @notice Baca detail order by ID.
     function getOrder(uint256 orderId) external view returns (FiebleTypes.Order memory);

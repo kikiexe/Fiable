@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {ICLOBEngine} from "./interfaces/ICLOBEngine.sol";
 import {IAMMFallback} from "./interfaces/IAMMFallback.sol";
+import {IFeeRewardController} from "./interfaces/IFeeRewardController.sol";
 import {FiebleTypes} from "./types/FiebleTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -21,6 +22,12 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
     /// @notice Alamat kontrak AMMFallback resmi.
     address public ammFallback;
+
+    /// @notice Alamat kontrak FeeRewardController.
+    address public feeRewardController;
+
+    /// @notice Alamat kas/treasury protokol untuk penampungan fee.
+    address public treasury;
 
     /// @notice Counter auto-increment untuk order ID.
     uint256 private _nextOrderId = 1;
@@ -224,8 +231,16 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         });
 
         // --- INTERACTIONS ---
-        // Transfer principal dari kontrak (sudah di-deposit lender) ke borrower
-        token.safeTransfer(borrowOrder.maker, matchAmount);
+        uint256 feeAmount = _calculateFee(tenor, matchAmount);
+        uint256 netAmount = matchAmount - feeAmount;
+
+        // Transfer netAmount ke borrower, fee ke treasury
+        token.safeTransfer(borrowOrder.maker, netAmount);
+        _chargeFee(feeAmount, positionId, borrowOrder.maker);
+
+        // Posisi mencatat netAmount yang benar-benar diterima borrower
+        // agar bunga dihitung berdasarkan principal aktual
+        _positions[positionId].amount = netAmount;
 
         emit OrderMatched(positionId, bestLendId, bestBorrowId, matchAmount, executionRate, tenor);
     }
@@ -299,13 +314,18 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
                 token.safeTransferFrom(msg.sender, address(this), remainingAmount);
                 token.forceApprove(ammFallback, remainingAmount);
                 ammRate = IAMMFallback(ammFallback).swap(side, tenor, remainingAmount, maxSlippageRate, address(this));
+                lastPositionId = _recordAMMPosition(side, tenor, remainingAmount, ammRate);
             } else {
-                ammRate = IAMMFallback(ammFallback).swap(side, tenor, remainingAmount, maxSlippageRate, msg.sender);
+                ammRate = IAMMFallback(ammFallback).swap(side, tenor, remainingAmount, maxSlippageRate, address(this));
+                lastPositionId = _recordAMMPosition(side, tenor, remainingAmount, ammRate);
+                uint256 ammFee = _calculateFee(tenor, remainingAmount);
+                uint256 ammNet = remainingAmount - ammFee;
+                token.safeTransfer(msg.sender, ammNet);
+                _chargeFee(ammFee, lastPositionId, msg.sender);
+                _positions[lastPositionId].amount = ammNet;
             }
 
             weightedRateSum += remainingAmount * ammRate;
-
-            lastPositionId = _recordAMMPosition(side, tenor, remainingAmount, ammRate);
             remainingAmount = 0;
         }
 
@@ -333,6 +353,25 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
     /// @inheritdoc ICLOBEngine
     function getAMMFallback() external view returns (address) {
         return ammFallback;
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function setFeeRewardController(address controllerAddress) external onlyOwner {
+        if (controllerAddress == address(0)) revert ZeroAddress();
+        address old = feeRewardController;
+        feeRewardController = controllerAddress;
+        emit FeeRewardControllerSet(old, controllerAddress);
+    }
+
+    /// @notice Mengatur alamat treasury protokol.
+    function setTreasury(address newTreasury) external onlyOwner {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        treasury = newTreasury;
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function getFeeRewardController() external view returns (address) {
+        return feeRewardController;
     }
 
     // ============================================================
@@ -428,7 +467,11 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         if (side == FiebleTypes.OrderSide.Lend) {
             token.safeTransferFrom(msg.sender, maker, fillAmount);
         } else {
-            token.safeTransfer(msg.sender, fillAmount);
+            uint256 feeAmount = _calculateFee(tenor, fillAmount);
+            uint256 netFill = fillAmount - feeAmount;
+            token.safeTransfer(msg.sender, netFill);
+            _chargeFee(feeAmount, posId, msg.sender);
+            _positions[posId].amount = netFill;
         }
 
         emit OrderMatched(posId, lendOrderId, borrowOrderId, fillAmount, rate, tenor);
@@ -495,6 +538,21 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
                 bestTime = order.createdAt;
                 bestOrderId = orderIds[i];
             }
+        }
+    }
+
+    /// @notice Hitung fee protokol untuk principal dan tenor tertentu.
+    function _calculateFee(FiebleTypes.TenorBucket tenor, uint256 principal) internal view returns (uint256 feeAmount) {
+        if (feeRewardController == address(0)) return 0;
+        uint256 feeBps = IFeeRewardController(feeRewardController).getProtocolFeeBps(tenor);
+        feeAmount = (principal * feeBps) / FiebleTypes.BPS_DENOMINATOR;
+    }
+
+    /// @notice Transfer fee ke treasury dan emit event ProtocolFeeCharged.
+    function _chargeFee(uint256 feeAmount, uint256 positionId, address payer) internal {
+        if (feeAmount > 0 && treasury != address(0)) {
+            token.safeTransfer(treasury, feeAmount);
+            emit ProtocolFeeCharged(positionId, payer, feeAmount);
         }
     }
 
