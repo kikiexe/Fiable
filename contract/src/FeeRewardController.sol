@@ -10,17 +10,10 @@ interface IAggregatorV3 {
     function latestRoundData()
         external
         view
-        returns (
-            uint80 roundId,
-            int256 answer,
-            uint256 startedAt,
-            uint256 updatedAt,
-            uint80 answeredInRound
-        );
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 }
 
 contract FeeRewardController is IFeeRewardController, Ownable {
-
     // ============================================================
     //                      CONSTANTS
     // ============================================================
@@ -30,9 +23,9 @@ contract FeeRewardController is IFeeRewardController, Ownable {
     uint256 public constant MAX_ORACLE_DELAY = 2 hours;
 
     // Batas pengaman nilai fee protokol
-    uint256 public constant MIN_FEE_BPS = 5;      // 0.05%
-    uint256 public constant MAX_FEE_BPS = 200;    // 2.00%
-    uint256 public constant DEFAULT_BASE_FEE = 15;// 0.15%
+    uint256 public constant MIN_FEE_BPS = 5; // 0.05%
+    uint256 public constant MAX_FEE_BPS = 200; // 2.00%
+    uint256 public constant DEFAULT_BASE_FEE = 15; // 0.15%
 
     // Circuit Breaker: maksimum kenaikan/penurunan fee per siklus upkeep
     uint256 public constant MAX_FEE_CHANGE_PER_CYCLE = 20; // 0.20%
@@ -63,11 +56,9 @@ contract FeeRewardController is IFeeRewardController, Ownable {
     //                      CONSTRUCTOR
     // ============================================================
 
-    constructor(
-        address priceFeedAddress,
-        address ammFallbackAddress,
-        uint256 initialUpkeepInterval
-    ) Ownable(msg.sender) {
+    constructor(address priceFeedAddress, address ammFallbackAddress, uint256 initialUpkeepInterval)
+        Ownable(msg.sender)
+    {
         if (priceFeedAddress == address(0) || ammFallbackAddress == address(0)) {
             revert ZeroAddress();
         }
@@ -121,12 +112,7 @@ contract FeeRewardController is IFeeRewardController, Ownable {
     //                      CHAINLINK AUTOMATION
     // ============================================================
 
-    function checkUpkeep(bytes calldata)
-        external
-        view
-        override
-        returns (bool upkeepNeeded, bytes memory performData)
-    {
+    function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         if (emergencyManualMode) {
             return (false, "");
         }
@@ -142,7 +128,12 @@ contract FeeRewardController is IFeeRewardController, Ownable {
         }
     }
 
-    function performUpkeep(bytes calldata /* performData */) external override {
+    function performUpkeep(
+        bytes calldata /* performData */
+    )
+        external
+        override
+    {
         if (emergencyManualMode) revert EmergencyModeActive();
         if (block.timestamp - lastUpkeepTimestamp < upkeepInterval) {
             revert UpkeepNotNeeded();
@@ -175,7 +166,14 @@ contract FeeRewardController is IFeeRewardController, Ownable {
 
     /// @notice Fee protokol saat ini berlaku seragam untuk semua tenor.
     /// Parameter tenor diterima untuk forward-compatibility interface per-tenor di masa depan.
-    function getProtocolFeeBps(FiebleTypes.TenorBucket /* tenor */) external view override returns (uint256) {
+    function getProtocolFeeBps(
+        FiebleTypes.TenorBucket /* tenor */
+    )
+        external
+        view
+        override
+        returns (uint256)
+    {
         if (emergencyManualMode) {
             return manualFeeBps;
         }
@@ -196,12 +194,7 @@ contract FeeRewardController is IFeeRewardController, Ownable {
         external
         view
         override
-        returns (
-            uint256 currentFeeBps,
-            uint256 lastUpkeepTime,
-            uint256 lastRecordedPrice,
-            bool emergencyActive
-        )
+        returns (uint256 currentFeeBps, uint256 lastUpkeepTime, uint256 lastRecordedPrice, bool emergencyActive)
     {
         (, int256 price,,,) = priceFeed.latestRoundData();
         return (

@@ -4,17 +4,11 @@ pragma solidity ^0.8.20;
 import {FiebleTypes} from "../types/FiebleTypes.sol";
 
 interface IFeeRewardController {
-
     // ============================================================
     //                      EVENTS
     // ============================================================
 
-    event ProtocolFeeUpdated(
-        uint256 oldFeeBps,
-        uint256 newFeeBps,
-        uint256 rewardTokenPriceUSD,
-        uint256 timestamp
-    );
+    event ProtocolFeeUpdated(uint256 oldFeeBps, uint256 newFeeBps, uint256 rewardTokenPriceUSD, uint256 timestamp);
 
     event OracleFeedUpdated(address indexed previousFeed, address indexed newFeed);
 
@@ -41,10 +35,7 @@ interface IFeeRewardController {
     /// @param checkData Data masukan opsional dari Chainlink node.
     /// @return upkeepNeeded True jika interval waktu tercapai atau deviasi harga melampaui batas.
     /// @return performData Payload data yang dikirim ke performUpkeep.
-    function checkUpkeep(bytes calldata checkData)
-        external
-        view
-        returns (bool upkeepNeeded, bytes memory performData);
+    function checkUpkeep(bytes calldata checkData) external view returns (bool upkeepNeeded, bytes memory performData);
 
     /// @notice Mengeksekusi penyesuaian fee yang dipicu oleh Chainlink Keeper.
     /// @param performData Payload hasil verifikasi dari checkUpkeep.
@@ -69,10 +60,5 @@ interface IFeeRewardController {
     function getControllerStatus()
         external
         view
-        returns (
-            uint256 currentFeeBps,
-            uint256 lastUpkeepTime,
-            uint256 lastRecordedPrice,
-            bool emergencyActive
-        );
+        returns (uint256 currentFeeBps, uint256 lastUpkeepTime, uint256 lastRecordedPrice, bool emergencyActive);
 }

@@ -25,11 +25,7 @@ contract FeeRewardControllerTest is Test {
         // Harga awal token reward = $1.00 (1e8)
         priceFeed = new MockPriceFeed("REWARD / USD", 1e8);
 
-        controller = new FeeRewardController(
-            address(priceFeed),
-            address(amm),
-            ONE_HOUR
-        );
+        controller = new FeeRewardController(address(priceFeed), address(amm), ONE_HOUR);
     }
 
     function test_InitialState() public view {

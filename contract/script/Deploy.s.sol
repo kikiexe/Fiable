@@ -26,11 +26,7 @@ contract DeployScript is Script {
         console.log("AMMFallback deployed at:", address(amm));
 
         // 4. Deploy FeeRewardController (1 hour interval)
-        FeeRewardController controller = new FeeRewardController(
-            address(priceFeed),
-            address(amm),
-            3600
-        );
+        FeeRewardController controller = new FeeRewardController(address(priceFeed), address(amm), 3600);
         console.log("FeeRewardController deployed at:", address(controller));
 
         // 5. Deploy CLOBEngine
