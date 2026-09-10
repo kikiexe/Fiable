@@ -1,7 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { TENOR_BUCKETS, parseUSDC, rateToBps, formatUSDC } from "@/lib/contracts";
+import {
+  TENOR_BUCKETS,
+  parseUSDC,
+  rateToBps,
+  formatUSDC,
+  CONTRACT_ADDRESSES,
+  FEE_REWARD_CONTROLLER_ABI,
+  useReadContract,
+} from "@/lib/contracts";
 import { FallbackBadge } from "./FallbackBadge";
 
 interface OrderPlacementFormProps {
@@ -18,6 +26,17 @@ export function OrderPlacementForm({ tenorId }: OrderPlacementFormProps) {
   const isLend = side === "lend";
   const isMarket = orderType === "market";
   const selectedBucket = TENOR_BUCKETS.find((b) => b.id === tenorId) ?? TENOR_BUCKETS[0];
+  const selectedTenor = tenorId;
+
+  // Hook: baca fee dinamis dari FeeRewardController onchain
+  const { data: feeBps } = useReadContract({
+    address: CONTRACT_ADDRESSES.feeRewardController,
+    abi: FEE_REWARD_CONTROLLER_ABI,
+    functionName: "getProtocolFeeBps",
+    args: [selectedTenor],
+  });
+  const feePercent = feeBps ? Number(feeBps) / 100 : 0.15;
+  const feeDecimal = feePercent / 100;
 
   const handleSubmit = () => {
     const rawAmount = parseUSDC(amount);
@@ -144,6 +163,22 @@ export function OrderPlacementForm({ tenorId }: OrderPlacementFormProps) {
             className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white font-mono focus:outline-none focus:border-blue-500"
             placeholder="Min. 10"
           />
+        </div>
+      </div>
+
+      {/* Fee Breakdown Disclosure */}
+      <div className="flex flex-col gap-1 p-3 bg-slate-900/60 rounded-xl border border-slate-800 text-xs">
+        <div className="flex justify-between text-slate-400">
+          <span>Protocol Fee (Dinamis):</span>
+          <span className="font-mono text-slate-200">
+            {feePercent.toFixed(2)}% ({feeBps !== undefined ? feeBps.toString() : "..."} bps)
+          </span>
+        </div>
+        <div className="flex justify-between text-slate-400">
+          <span>Estimasi Potongan Fee:</span>
+          <span className="font-mono text-amber-400">
+            {amount ? (parseFloat(amount) * feeDecimal).toFixed(2) : "0.00"} mUSDC
+          </span>
         </div>
       </div>
 
