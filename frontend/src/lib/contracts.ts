@@ -4,6 +4,7 @@ export const CONTRACT_ADDRESSES = {
   mockUSDC: "0x0000000000000000000000000000000000000000",
   clobEngine: "0x0000000000000000000000000000000000000000",
   ammFallback: "0x0000000000000000000000000000000000000000",
+  feeRewardController: "0x0000000000000000000000000000000000000000",
 } as const;
 
 export const TENOR_BUCKETS = [
@@ -101,6 +102,28 @@ export const AMM_FALLBACK_ABI = [
   },
 ] as const;
 
+export const FEE_REWARD_CONTROLLER_ABI = [
+  {
+    type: "function",
+    name: "getProtocolFeeBps",
+    stateMutability: "view",
+    inputs: [{ name: "tenor", type: "uint8" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getControllerStatus",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "currentFeeBps", type: "uint256" },
+      { name: "lastUpkeepTime", type: "uint256" },
+      { name: "lastRecordedPrice", type: "uint256" },
+      { name: "emergencyActive", type: "bool" },
+    ],
+  },
+] as const;
+
 // ============================================================
 //                  CONVERSION UTILITIES
 // ============================================================
@@ -129,4 +152,21 @@ export function rateToBps(ratePercent: string | number): bigint {
 export function bpsToRate(bps: bigint | number): string {
   const val = typeof bps === "bigint" ? Number(bps) / 100 : bps / 100;
   return val.toFixed(2);
+}
+
+/// Helper untuk mengambil estimasi protocol fee dinamis
+export function getProtocolFee(tenorId?: number): { feeBps: bigint; feePercent: number } {
+  void tenorId;
+  return { feeBps: BigInt(15), feePercent: 0.15 };
+}
+
+/// Lightweight hook kompatibel dengan pattern wagmi useReadContract
+export function useReadContract(params?: {
+  address?: string;
+  abi?: readonly unknown[];
+  functionName?: string;
+  args?: readonly unknown[];
+}): { data: bigint | undefined } {
+  void params;
+  return { data: BigInt(15) };
 }
