@@ -24,6 +24,12 @@ export default function Home() {
           >
             My Positions
           </Link>
+          <Link
+            href="/market-maker"
+            className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-6 py-3 text-indigo-300 font-medium hover:bg-indigo-500/20 transition-colors"
+          >
+            Market Maker
+          </Link>
         </div>
       </main>
     </div>
