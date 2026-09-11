@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {ICLOBEngine} from "./interfaces/ICLOBEngine.sol";
 import {IAMMFallback} from "./interfaces/IAMMFallback.sol";
 import {IFeeRewardController} from "./interfaces/IFeeRewardController.sol";
+import {IMiningReward} from "./interfaces/IMiningReward.sol";
 import {FiebleTypes} from "./types/FiebleTypes.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -25,6 +26,9 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
 
     /// @notice Alamat kontrak FeeRewardController.
     address public feeRewardController;
+
+    /// @notice Alamat kontrak MiningReward untuk pencatatan Matched-Volume Mining.
+    address public miningReward;
 
     /// @notice Alamat kas/treasury protokol untuk penampungan fee.
     address public treasury;
@@ -243,6 +247,12 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         _positions[positionId].amount = netAmount;
 
         emit OrderMatched(positionId, bestLendId, bestBorrowId, matchAmount, executionRate, tenor);
+
+        // Catat match organik untuk Matched-Volume Mining (fail-safe: jangan revert seluruh match kalau MiningReward belum diset)
+        if (miningReward != address(0)) {
+            IMiningReward(miningReward)
+                .recordMatch(positionId, lendOrder.maker, borrowOrder.maker, tenor, matchAmount, executionRate);
+        }
     }
 
     /// @inheritdoc ICLOBEngine
@@ -374,6 +384,19 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         return feeRewardController;
     }
 
+    /// @inheritdoc ICLOBEngine
+    function setMiningReward(address miningRewardAddress) external onlyOwner {
+        if (miningRewardAddress == address(0)) revert ZeroAddress();
+        address old = miningReward;
+        miningReward = miningRewardAddress;
+        emit MiningRewardSet(old, miningRewardAddress);
+    }
+
+    /// @inheritdoc ICLOBEngine
+    function getMiningReward() external view returns (address) {
+        return miningReward;
+    }
+
     // ============================================================
     //                      VIEW FUNCTIONS
     // ============================================================
@@ -475,6 +498,13 @@ contract CLOBEngine is ICLOBEngine, ReentrancyGuard, Ownable {
         }
 
         emit OrderMatched(posId, lendOrderId, borrowOrderId, fillAmount, rate, tenor);
+
+        // Catat match organik untuk Matched-Volume Mining
+        if (miningReward != address(0)) {
+            address lender = (side == FiebleTypes.OrderSide.Lend) ? msg.sender : maker;
+            address borrower = (side == FiebleTypes.OrderSide.Borrow) ? msg.sender : maker;
+            IMiningReward(miningReward).recordMatch(posId, lender, borrower, tenor, fillAmount, rate);
+        }
     }
 
     /// @notice Catat posisi kredit untuk residual AMM Fallback.
