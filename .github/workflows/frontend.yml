@@ -41,3 +41,5 @@ jobs:
 
       - name: Build
         run: bun run build
+        env:
+          NEXT_PUBLIC_PRIVY_APP_ID: cmtw01df801zb0ckzb3rhrlrw

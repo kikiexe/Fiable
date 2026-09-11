@@ -1,7 +1,11 @@
 import type { PrivyClientConfig } from "@privy-io/react-auth";
 import { monadTestnet } from "./monad";
 
-export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+export const PRIVY_APP_ID =
+  process.env.NEXT_PUBLIC_PRIVY_APP_ID &&
+  process.env.NEXT_PUBLIC_PRIVY_APP_ID.trim().length > 0
+    ? process.env.NEXT_PUBLIC_PRIVY_APP_ID
+    : "cmtw01df801zb0ckzb3rhrlrw";
 
 export const privyConfig: PrivyClientConfig = {
   defaultChain: monadTestnet,
