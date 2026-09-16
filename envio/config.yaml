@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: fieble-indexer
+description: Fieble Fixed-Rate Lending Protocol Indexer on Monad Testnet
+
+contracts:
+  - name: CLOBEngine
+    events:
+      - event: "OrderPlaced(uint256 indexed orderId, address indexed maker, uint8 side, uint8 tenor, uint256 rate, uint256 amount)"
+      - event: "OrderCancelled(uint256 indexed orderId, address indexed maker)"
+      - event: "OrderMatched(uint256 indexed positionId, uint256 indexed lendOrderId, uint256 indexed borrowOrderId, uint256 matchedAmount, uint256 rate, uint8 tenor)"
+      - event: "PositionSettled(uint256 indexed positionId, uint256 totalRepayment)"
+      - event: "ProtocolFeeCharged(uint256 indexed positionId, address indexed payer, uint256 feeAmount)"
+  - name: MiningReward
+    events:
+      - event: "MatchRecorded(uint256 indexed positionId, address indexed lender, address indexed borrower, uint256 matchedAmount, uint256 executionRate, uint256 twapRateAtMatch)"
+      - event: "RewardAccrued(uint256 indexed positionId, address indexed participant, uint256 weightedVolume)"
+
+chains:
+  - id: 10143
+    rpc: "https://testnet-rpc.monad.xyz"
+    start_block: 61671000
+    contracts:
+      - name: CLOBEngine
+        address: "0x9Ef5459216E8Bf1f12618cb3FA795C71a4cC6BCE"
+      - name: MiningReward
+        address: "0x131692bF40Fb489494A9b3D5982816DD5C67B589"

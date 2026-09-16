@@ -1,11 +1,52 @@
 // Contract addresses and ABIs for Fieble Protocol
 
 export const CONTRACT_ADDRESSES = {
-  mockUSDC: "0x0000000000000000000000000000000000000000",
-  clobEngine: "0x0000000000000000000000000000000000000000",
-  ammFallback: "0x0000000000000000000000000000000000000000",
-  feeRewardController: "0x0000000000000000000000000000000000000000",
+  mockUSDC: (process.env.NEXT_PUBLIC_MOCK_USDC_ADDRESS ?? "0x7A13F0709937a85037028DBff016Fd2A73122F70") as `0x${string}`,
+  clobEngine: (process.env.NEXT_PUBLIC_CLOB_ENGINE_ADDRESS ?? "0x9Ef5459216E8Bf1f12618cb3FA795C71a4cC6BCE") as `0x${string}`,
+  ammFallback: (process.env.NEXT_PUBLIC_AMM_FALLBACK_ADDRESS ?? "0xE1D063B8Ef992dB7CDDEb77E9a6592844E75aBc3") as `0x${string}`,
+  feeRewardController: (process.env.NEXT_PUBLIC_FEE_REWARD_CONTROLLER_ADDRESS ?? "0xAE5CD607f92bED8482422c10B7e85245eFc7f79E") as `0x${string}`,
+  miningReward: (process.env.NEXT_PUBLIC_MINING_REWARD_ADDRESS ?? "0x131692bF40Fb489494A9b3D5982816DD5C67B589") as `0x${string}`,
 } as const;
+
+export const ERC20_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
+] as const;
 
 export const TENOR_BUCKETS = [
   { id: 0, name: "1 Minggu", durationDays: 7, label: "Short" },
@@ -65,6 +106,105 @@ export const CLOB_ENGINE_ABI = [
     stateMutability: "nonpayable",
     inputs: [{ name: "positionId", type: "uint256" }],
     outputs: [],
+  },
+  {
+    type: "function",
+    name: "getPosition",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "id", type: "uint256" },
+          { name: "lendOrderId", type: "uint256" },
+          { name: "borrowOrderId", type: "uint256" },
+          { name: "lender", type: "address" },
+          { name: "borrower", type: "address" },
+          { name: "tenor", type: "uint8" },
+          { name: "rate", type: "uint256" },
+          { name: "amount", type: "uint256" },
+          { name: "startTime", type: "uint256" },
+          { name: "maturityTime", type: "uint256" },
+          { name: "settled", type: "bool" },
+        ],
+      },
+    ],
+  },
+  {
+    type: "function",
+    name: "getOrder",
+    stateMutability: "view",
+    inputs: [{ name: "orderId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "id", type: "uint256" },
+          { name: "maker", type: "address" },
+          { name: "side", type: "uint8" },
+          { name: "tenor", type: "uint8" },
+          { name: "rate", type: "uint256" },
+          { name: "amount", type: "uint256" },
+          { name: "filledAmount", type: "uint256" },
+          { name: "createdAt", type: "uint256" },
+          { name: "status", type: "uint8" },
+        ],
+      },
+    ],
+  },
+] as const;
+
+export const MINING_REWARD_ABI = [
+  {
+    type: "function",
+    name: "totalWeightedVolume",
+    stateMutability: "view",
+    inputs: [{ name: "participant", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "previewWeightedVolume",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "claimWeightedVolume",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "positionId", type: "uint256" },
+      { name: "asLender", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "getMatchRecord",
+    stateMutability: "view",
+    inputs: [{ name: "positionId", type: "uint256" }],
+    outputs: [
+      {
+        name: "",
+        type: "tuple",
+        components: [
+          { name: "positionId", type: "uint256" },
+          { name: "lender", type: "address" },
+          { name: "borrower", type: "address" },
+          { name: "tenor", type: "uint8" },
+          { name: "matchedAmount", type: "uint256" },
+          { name: "executionRate", type: "uint256" },
+          { name: "twapRateAtMatch", type: "uint256" },
+          { name: "startTime", type: "uint256" },
+          { name: "claimedLender", type: "bool" },
+          { name: "claimedBorrower", type: "bool" },
+        ],
+      },
+    ],
   },
 ] as const;
 
@@ -154,19 +294,18 @@ export function bpsToRate(bps: bigint | number): string {
   return val.toFixed(2);
 }
 
-/// Helper untuk mengambil estimasi protocol fee dinamis
-export function getProtocolFee(tenorId?: number): { feeBps: bigint; feePercent: number } {
-  void tenorId;
-  return { feeBps: BigInt(15), feePercent: 0.15 };
-}
-
-/// Lightweight hook kompatibel dengan pattern wagmi useReadContract
-export function useReadContract(params?: {
-  address?: string;
-  abi?: readonly unknown[];
-  functionName?: string;
-  args?: readonly unknown[];
-}): { data: bigint | undefined } {
-  void params;
-  return { data: BigInt(15) };
+/// Menghitung durasi tenor dalam detik
+export function tenorToDurationSeconds(tenor: number): bigint {
+  switch (tenor) {
+    case 0:
+      return BigInt(7 * 86400); // 1 Minggu
+    case 1:
+      return BigInt(30 * 86400); // 1 Bulan
+    case 2:
+      return BigInt(90 * 86400); // 3 Bulan
+    case 3:
+      return BigInt(365 * 86400); // 1 Tahun
+    default:
+      return BigInt(7 * 86400);
+  }
 }

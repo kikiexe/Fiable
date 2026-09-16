@@ -5,6 +5,8 @@ import Link from "next/link";
 import { TenorSelector } from "@/components/orderbook/TenorSelector";
 import { OrderBookTable } from "@/components/orderbook/OrderBookTable";
 import { OrderPlacementForm } from "@/components/orderbook/OrderPlacementForm";
+import { ConnectButton } from "@/components/wallet/ConnectButton";
+import { FaucetButton } from "@/components/faucet/FaucetButton";
 
 // Data kedalaman pasar per tenor bucket
 const BUCKET_DEPTH_DATA: Record<
@@ -84,6 +86,11 @@ export default function OrderBookPage() {
           <Link href="/positions" className="text-slate-400 hover:text-slate-200">
             Posisi Aktif
           </Link>
+          <Link href="/market-maker" className="text-slate-400 hover:text-slate-200">
+            Market Maker
+          </Link>
+          <FaucetButton />
+          <ConnectButton />
         </nav>
       </header>
 

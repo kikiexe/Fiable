@@ -1,0 +1,54 @@
+type Order {
+  id: ID!
+  orderId: BigInt!
+  maker: String!
+  side: Int!
+  tenor: Int!
+  rate: BigInt!
+  amount: BigInt!
+  filledAmount: BigInt!
+  timestamp: BigInt!
+  status: String!
+}
+
+type Position {
+  id: ID!
+  positionId: BigInt!
+  lendOrderId: BigInt!
+  borrowOrderId: BigInt!
+  lender: String!
+  borrower: String!
+  tenor: Int!
+  rate: BigInt!
+  amount: BigInt!
+  startTime: BigInt!
+  maturityTime: BigInt!
+  settled: Boolean!
+}
+
+type FeeCharge {
+  id: ID!
+  positionId: BigInt!
+  payer: String!
+  feeAmount: BigInt!
+  timestamp: BigInt!
+}
+
+type MatchRecord {
+  id: ID!
+  positionId: BigInt!
+  lender: String!
+  borrower: String!
+  matchedAmount: BigInt!
+  executionRate: BigInt!
+  twapRateAtMatch: BigInt!
+  timestamp: BigInt!
+}
+
+type MiningReward {
+  id: ID!
+  positionId: BigInt!
+  participant: String!
+  weightedVolume: BigInt!
+  timestamp: BigInt!
+}
