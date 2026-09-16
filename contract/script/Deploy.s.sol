@@ -7,6 +7,7 @@ import {MockPriceFeed} from "../src/MockPriceFeed.sol";
 import {CLOBEngine} from "../src/CLOBEngine.sol";
 import {AMMFallback} from "../src/AMMFallback.sol";
 import {FeeRewardController} from "../src/FeeRewardController.sol";
+import {MiningReward} from "../src/MiningReward.sol";
 import {FiebleTypes} from "../src/types/FiebleTypes.sol";
 
 contract DeployScript is Script {
@@ -33,9 +34,14 @@ contract DeployScript is Script {
         CLOBEngine engine = new CLOBEngine(address(usdc));
         console.log("CLOBEngine deployed at:", address(engine));
 
-        // 6. Cross-Contract Linking
+        // 6. Deploy MiningReward
+        MiningReward mining = new MiningReward(address(engine), address(amm));
+        console.log("MiningReward deployed at:", address(mining));
+
+        // 7. Cross-Contract Linking
         engine.setAMMFallback(address(amm));
         engine.setFeeRewardController(address(controller));
+        engine.setMiningReward(address(mining));
         engine.setTreasury(msg.sender);
         amm.setCLOBEngine(address(engine));
         console.log("Cross-contract wiring completed.");

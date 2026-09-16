@@ -50,6 +50,7 @@ interface ICLOBEngine {
 
     event ProtocolFeeCharged(uint256 indexed positionId, address indexed payer, uint256 feeAmount);
     event FeeRewardControllerSet(address indexed previousController, address indexed newController);
+    event MiningRewardSet(address indexed previousAddress, address indexed newAddress);
 
     event PositionSettled(uint256 indexed positionId, uint256 totalRepayment);
 
@@ -119,6 +120,12 @@ interface ICLOBEngine {
 
     /// @notice Mengambil alamat kontrak FeeRewardController saat ini.
     function getFeeRewardController() external view returns (address);
+
+    /// @notice Mengatur alamat kontrak MiningReward resmi.
+    function setMiningReward(address miningRewardAddress) external;
+
+    /// @notice Mengambil alamat kontrak MiningReward saat ini.
+    function getMiningReward() external view returns (address);
 
     /// @notice Baca detail order by ID.
     function getOrder(uint256 orderId) external view returns (FiebleTypes.Order memory);
