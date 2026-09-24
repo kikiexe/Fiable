@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
-import { FaucetButton } from "@/components/faucet/FaucetButton";
+import { AppHeader } from "@/components/AppHeader";
 import { PositionCard } from "@/components/positions/PositionCard";
 import { usePositions, type IndexedPosition } from "@/hooks/usePositions";
 import { useCurrentTimestamp } from "@/hooks/useCurrentTimestamp";
@@ -21,7 +21,8 @@ export default function PositionsPage() {
   const asLender = data?.asLender ?? [];
   const asBorrower = data?.asBorrower ?? [];
 
-  // Summary Metrics
+  const [sortBy, setSortBy] = useState<"time" | "amount" | "rate">("time");
+
   const totalLentRaw = asLender.reduce(
     (acc, pos) => acc + BigInt(pos.amount || "0"),
     BigInt(0)
@@ -30,6 +31,11 @@ export default function PositionsPage() {
     (acc, pos) => acc + BigInt(pos.amount || "0"),
     BigInt(0)
   );
+
+  const netExposure = totalLentRaw >= totalBorrowedRaw
+    ? totalLentRaw - totalBorrowedRaw
+    : totalBorrowedRaw - totalLentRaw;
+  const isNetLender = totalLentRaw >= totalBorrowedRaw;
 
   const zeroBigInt = BigInt(0);
   const activeCount = [...asLender, ...asBorrower].filter(
@@ -51,160 +57,179 @@ export default function PositionsPage() {
     displayPositions = asBorrower.map((pos) => ({ pos, role: "borrower" as const }));
   }
 
-  // Sort by startTime descending
-  displayPositions.sort(
-    (a, b) => Number(b.pos.startTime || 0) - Number(a.pos.startTime || 0)
-  );
+  displayPositions.sort((a, b) => {
+    if (sortBy === "amount") {
+      return Number(BigInt(b.pos.amount || "0") - BigInt(a.pos.amount || "0"));
+    }
+    if (sortBy === "rate") {
+      return Number(BigInt(b.pos.rate || "0") - BigInt(a.pos.rate || "0"));
+    }
+    return Number(b.pos.startTime || 0) - Number(a.pos.startTime || 0);
+  });
+
+  const filterOptions = [
+    { key: "all" as const, label: `Semua (${asLender.length + asBorrower.length})` },
+    { key: "lender" as const, label: `Pendanaan (${asLender.length})` },
+    { key: "borrower" as const, label: `Pinjaman (${asBorrower.length})` },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-xl font-black text-white tracking-tight">
-            Fieble
-          </Link>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-medium">
-            Monad Testnet
-          </span>
-        </div>
+    <div className="min-h-screen bg-[#e8ebe6] text-[#0e0f0c] flex flex-col">
+      <AppHeader />
 
-        <nav className="flex items-center gap-4 text-sm font-medium">
-          <Link href="/dashboard" className="text-slate-400 hover:text-slate-200">
-            Dashboard
-          </Link>
-          <Link href="/orderbook" className="text-slate-400 hover:text-slate-200">
-            Order Book
-          </Link>
-          <Link href="/positions" className="text-white font-semibold">
-            Posisi Aktif
-          </Link>
-          <Link href="/market-maker" className="text-slate-400 hover:text-slate-200">
-            Market Maker
-          </Link>
-          <FaucetButton />
-          <ConnectButton />
-        </nav>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-6 flex flex-col gap-6">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 pb-2 border-b border-stone-200">
           <div>
-            <h1 className="text-2xl font-bold text-white">Posisi Kredit & Riwayat</h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Data posisi real-time dari Envio HyperIndex pada Monad Testnet.
+            <span className="text-[10px] font-mono font-black tracking-widest uppercase text-[#163300]">
+              PINJAMAN SAYA
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black text-[#0e0f0c] tracking-tight">
+              Daftar Pinjaman & Riwayat Transaksi
+            </h1>
+            <p className="text-xs text-[#454745] mt-1">
+              Catatan seluruh pinjaman dan pendanaan Anda yang tersimpan aman di jaringan blockchain.
             </p>
           </div>
           <Link
             href="/orderbook"
-            className="self-start sm:self-auto px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
+            className="self-start sm:self-auto px-5 py-2.5 rounded-xs bg-[#9fe870] text-[#0e0f0c] text-xs font-black hover:bg-[#cdffad] transition-colors shadow-xs"
           >
-            + Buka Order Baru
+            + Buat Penawaran
           </Link>
         </div>
 
         {!authenticated || !address ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-24 text-center rounded-2xl bg-slate-900/40 border border-slate-800">
-            <p className="text-slate-400 text-sm max-w-md">
-              Hubungkan wallet Anda untuk melihat posisi lending, borrowing, status jatuh tempo, dan melakukan pelunasan pinjaman onchain.
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-center rounded-xs bg-white border border-stone-200 shadow-xs">
+            <p className="text-[#454745] text-sm max-w-md">
+              Hubungkan dompet untuk memantau pinjaman, pendanaan, dan melakukan pelunasan secara langsung.
             </p>
             <ConnectButton />
           </div>
         ) : (
           <>
-            {/* Overview Metric Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                  Total Dipinjamkan
+            {/* Metric Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xs bg-white border border-stone-200 shadow-xs">
+                <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                  Total Dana Dipinjamkan
                 </div>
-                <div className="text-xl font-bold font-mono text-emerald-400 mt-1">
+                <div className="text-xl font-black font-mono text-[#2ead4b] mt-1">
                   {formatUSDC(totalLentRaw)} mUSDC
                 </div>
+                <div className="text-[10px] text-[#868685] mt-1">
+                  {asLender.length} Transaksi Pendanaan
+                </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                  Total Dipinjam
+              <div className="p-4 rounded-xs bg-white border border-stone-200 shadow-xs">
+                <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                  Total Dana Dipinjam
                 </div>
-                <div className="text-xl font-bold font-mono text-blue-400 mt-1">
+                <div className="text-xl font-black font-mono text-[#0e0f0c] mt-1">
                   {formatUSDC(totalBorrowedRaw)} mUSDC
                 </div>
-              </div>
-
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                  Posisi Berjalan
-                </div>
-                <div className="text-xl font-bold font-mono text-white mt-1">
-                  {activeCount}
+                <div className="text-[10px] text-[#868685] mt-1">
+                  {asBorrower.length} Transaksi Pinjaman
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800">
-                <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-                  Jatuh Tempo (Settle)
+              <div className="p-4 rounded-xs bg-white border border-stone-200 shadow-xs">
+                <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                  Selisih Bersih (Net)
                 </div>
-                <div className="text-xl font-bold font-mono text-amber-400 mt-1">
-                  {maturedCount}
+                <div className={`text-xl font-black font-mono mt-1 ${isNetLender ? "text-[#2ead4b]" : "text-[#d03238]"}`}>
+                  {isNetLender ? "+" : "-"}{formatUSDC(netExposure)} mUSDC
+                </div>
+                <div className="text-[10px] text-[#868685] mt-1">
+                  {isNetLender ? "Lebih Banyak Mendanai" : "Lebih Banyak Meminjam"}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xs bg-white border border-stone-200 shadow-xs">
+                <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                  Status Jatuh Tempo
+                </div>
+                <div className="text-xl font-black font-mono text-[#0e0f0c] mt-1 flex items-center gap-2">
+                  <span>{maturedCount} Siap</span>
+                  <span className="text-xs text-[#868685] font-normal font-sans">({activeCount} Berjalan)</span>
+                </div>
+                <div className="text-[10px] text-[#868685] mt-1">
+                  Pelunasan langsung kapan saja
                 </div>
               </div>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-              <button
-                type="button"
-                onClick={() => setFilter("all")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                  filter === "all"
-                    ? "bg-slate-800 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Semua Posisi ({asLender.length + asBorrower.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilter("lender")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                  filter === "lender"
-                    ? "bg-slate-800 text-emerald-400"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Lending ({asLender.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilter("borrower")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                  filter === "borrower"
-                    ? "bg-slate-800 text-blue-400"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Borrowing ({asBorrower.length})
-              </button>
+            {/* Filter and Sort Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-300 pb-3">
+              <div className="flex items-center gap-1.5">
+                {filterOptions.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setFilter(opt.key)}
+                    className={`px-3 py-1.5 rounded-xs text-xs font-bold cursor-pointer transition-colors ${
+                      filter === opt.key
+                        ? `bg-[#0e0f0c] text-white shadow-xs`
+                        : "text-[#454745] hover:text-[#0e0f0c] hover:bg-white"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="text-[#868685]">Urutkan:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as "time" | "amount" | "rate")}
+                  className="bg-white border border-stone-300 rounded-xs px-2.5 py-1 text-xs text-[#0e0f0c] font-bold focus:outline-none"
+                >
+                  <option value="time">Waktu Terbaru</option>
+                  <option value="amount">Nominal Terbesar</option>
+                  <option value="rate">Suku Bunga</option>
+                </select>
+              </div>
             </div>
 
-            {/* Content List */}
+            {/* Position List */}
             {isLoading ? (
-              <div className="py-16 text-center text-slate-500 text-sm">
-                Memuat data posisi dari Envio HyperIndex...
+              <div className="py-16 text-center text-[#868685] text-sm font-mono bg-white rounded-xs border border-stone-200">
+                Memuat data pinjaman...
               </div>
             ) : displayPositions.length === 0 ? (
-              <div className="py-20 text-center rounded-2xl bg-slate-900/30 border border-slate-800/80 flex flex-col items-center gap-3">
-                <p className="text-slate-400 text-sm">
-                  Tidak ada posisi kredit yang ditemukan untuk wallet ini.
-                </p>
-                <Link
-                  href="/orderbook"
-                  className="px-4 py-2 rounded-xl bg-blue-600/20 text-blue-400 border border-blue-500/30 text-xs font-medium hover:bg-blue-600/30 transition-colors"
-                >
-                  Pasang Order di Order Book
-                </Link>
+              <div className="py-14 text-center rounded-xs bg-white border border-stone-200 shadow-xs flex flex-col items-center gap-4 px-4">
+                <div className="max-w-md">
+                  <h3 className="text-base font-black text-[#0e0f0c]">
+                    Belum Ada Riwayat Pinjaman
+                  </h3>
+                  <p className="text-xs text-[#454745] mt-1.5 leading-relaxed">
+                    Anda belum memiliki pinjaman atau pendanaan yang aktif. Pasang penawaran di buku penawaran pasar untuk mengunci suku bunga pasti.
+                  </p>
+                </div>
+
+                {/* Quick Tenor Shortcuts */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full max-w-lg mt-2 text-left">
+                  {[
+                    { id: 0, name: "7 Hari", rate: "5.20% APY" },
+                    { id: 1, name: "30 Hari", rate: "6.00% APY" },
+                    { id: 2, name: "90 Hari", rate: "7.10% APY" },
+                    { id: 3, name: "365 Hari", rate: "8.50% APY" },
+                  ].map((item) => (
+                    <Link
+                      key={item.id}
+                      href={`/orderbook?tenor=${item.id}&side=0`}
+                      className="p-3 rounded-xs bg-[#f6f7f5] hover:bg-[#e8ebe6] border border-stone-200 transition-colors block group"
+                    >
+                      <div className="text-xs font-black text-[#0e0f0c] group-hover:text-[#163300]">
+                        {item.name}
+                      </div>
+                      <div className="text-[11px] font-mono text-[#2ead4b] font-bold mt-0.5">
+                        {item.rate}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
             ) : (
               <div className="flex flex-col gap-4">

@@ -17,7 +17,10 @@ contracts:
 
 chains:
   - id: 10143
-    rpc: "https://testnet-rpc.monad.xyz"
+    rpc:
+      url: "https://testnet-rpc.monad.xyz"
+      initial_block_interval: 100
+      interval_ceiling: 100
     start_block: 61671000
     contracts:
       - name: CLOBEngine

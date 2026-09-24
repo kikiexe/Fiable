@@ -15,12 +15,12 @@ export function FaucetButton() {
 
   const handleMint = async () => {
     if (!isConnected || !address) {
-      setStatus("Hubungkan wallet");
+      setStatus("Hubungkan dompet terlebih dahulu");
       return;
     }
 
     setIsMinting(true);
-    setStatus("Mengirim mint...");
+    setStatus("Memproses pengiriman saldo...");
 
     try {
       const hash = await writeContractAsync({
@@ -30,9 +30,9 @@ export function FaucetButton() {
         args: [address, parseUSDC("10000")],
       });
 
-      setStatus("Menunggu konfirmasi blok...");
+      setStatus("Menunggu konfirmasi jaringan...");
       await waitForTransactionReceipt(config, { hash });
-      setStatus("10,000 mUSDC berhasil ditambahkan!");
+      setStatus("10.000 mUSDC saldo uji coba berhasil masuk!");
       setTimeout(() => setStatus(null), 4000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Transaksi gagal";
@@ -51,13 +51,13 @@ export function FaucetButton() {
         type="button"
         onClick={handleMint}
         disabled={isMinting}
-        className="px-3 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 transition-colors disabled:opacity-50 cursor-pointer"
-        title="Mint 10,000 mUSDC untuk testing di Monad Testnet"
+        className="px-3 py-1.5 rounded-xs border border-[#9fe870]/40 bg-[#e2f6d5] text-[#163300] text-[11px] font-bold hover:bg-[#9fe870] transition-colors disabled:opacity-50 cursor-pointer"
+        title="Klaim 10.000 mUSDC saldo uji coba di jaringan Monad"
       >
-        {isMinting ? "Minting..." : "Faucet +10k mUSDC"}
+        {isMinting ? "Mengirim..." : "Ambil Saldo +10k"}
       </button>
       {status && (
-        <span className="text-[11px] text-emerald-300 font-mono">
+        <span className="text-[11px] text-[#163300] font-mono font-semibold">
           {status}
         </span>
       )}

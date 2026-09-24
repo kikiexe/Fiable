@@ -1,567 +1,794 @@
-import Link from "next/link";
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useReadContracts, useReadContract } from 'wagmi';
+import { GradientWaves } from '@/components/GradientWaves';
+import { CONTRACT_ADDRESSES, AMM_FALLBACK_ABI, ERC20_ABI, formatUSDC } from '@/lib/contracts';
 
 export default function HomePage() {
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [calcAmount, setCalcAmount] = useState<string>('10000');
+  const [calcTenor, setCalcTenor] = useState<number>(1);
+  const [calcSide, setCalcSide] = useState<'borrow' | 'lend'>('borrow');
+  const [calcViewTab, setCalcViewTab] = useState<'summary' | 'schedule'>('summary');
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 30);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Live reserve balance held by AMMFallback contract
+  const { data: ammReserveBalance } = useReadContract({
+    address: CONTRACT_ADDRESSES.mockUSDC,
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [CONTRACT_ADDRESSES.ammFallback],
+  });
+
+  const reserveFormatted = typeof ammReserveBalance === 'bigint'
+    ? formatUSDC(ammReserveBalance)
+    : '400.000';
+
+  // Fetch live pool info from AMMFallback for each tenor
+  const { data: poolData } = useReadContracts({
+    contracts: [0, 1, 2, 3].map((tenor) => ({
+      address: CONTRACT_ADDRESSES.ammFallback,
+      abi: AMM_FALLBACK_ABI,
+      functionName: 'getPoolInfo',
+      args: [tenor],
+    })),
+  });
+
+  const baseBuckets = [
+    { id: 0, name: '7 Hari', code: 'SHORT', days: 7, baseRateBps: 520, xCoord: 80, yCoord: 140 },
+    { id: 1, name: '30 Hari', code: 'MONTH', days: 30, baseRateBps: 640, xCoord: 240, yCoord: 110 },
+    { id: 2, name: '90 Hari', code: 'QUARTER', days: 90, baseRateBps: 785, xCoord: 440, yCoord: 75 },
+    { id: 3, name: '365 Hari', code: 'ANNUAL', days: 365, baseRateBps: 960, xCoord: 640, yCoord: 30 },
+  ];
+
+  const tenorBuckets = baseBuckets.map((b) => {
+    const pool = poolData?.[b.id]?.result;
+    const rateBps = pool && Array.isArray(pool) && pool[4] !== undefined
+      ? Number(pool[4])
+      : b.baseRateBps;
+    const ratePercent = rateBps / 100;
+    const clampedRate = Math.min(10.5, Math.max(3.5, ratePercent));
+    const yCoord = Math.round(144 - ((clampedRate - 4) / 6) * 110);
+    return {
+      ...b,
+      rateBps,
+      yCoord,
+    };
+  });
+
+  const p0 = tenorBuckets[0];
+  const p1 = tenorBuckets[1];
+  const p2 = tenorBuckets[2];
+  const p3 = tenorBuckets[3];
+  const curvePath = `M ${p0.xCoord},${p0.yCoord} C ${p1.xCoord},${p1.yCoord} ${p2.xCoord},${p2.yCoord} ${p3.xCoord},${p3.yCoord}`;
+  const areaPath = `${curvePath} L ${p3.xCoord},165 L ${p0.xCoord},165 Z`;
+
+  const amountPresets = ['1000', '5000', '10000', '25000', '50000', '100000'];
+
   const verifiedContracts = [
-    {
-      name: "CLOBEngine",
-      role: "Core matching engine & order storage",
-      address: "0x9Ef5459216E8Bf1f12618cb3FA795C71a4cC6BCE",
-    },
-    {
-      name: "AMMFallback",
-      role: "Residual liquidity pool & yield curve model",
-      address: "0xE1D063B8Ef992dB7CDDEb77E9a6592844E75aBc3",
-    },
-    {
-      name: "FeeRewardController",
-      role: "Chainlink dynamic volatility fee tuning",
-      address: "0xAE5CD607f92bED8482422c10B7e85245eFc7f79E",
-    },
-    {
-      name: "MiningReward",
-      role: "Matched-Volume Mining with WashTradingGuard",
-      address: "0x131692bF40Fb489494A9b3D5982816DD5C67B589",
-    },
-    {
-      name: "MockPriceFeed",
-      role: "Chainlink oracle price feed mock ($1.00 base)",
-      address: "0xD89Cb0453557C4BC8bf918B21432eB97C71Ba2e9",
-    },
-    {
-      name: "MockERC20 (mUSDC)",
-      role: "Principal lending token (6 decimals, open faucet)",
-      address: "0x7A13F0709937a85037028DBff016Fd2A73122F70",
-    },
+    { name: 'CLOBEngine', role: 'Pencocokan transaksi pinjaman langsung antar pengguna', address: '0x9Ef5459216E8Bf1f12618cb3FA795C71a4cC6BCE' },
+    { name: 'AMMFallback', role: 'Dana cadangan otomatis untuk pencairan seketika', address: '0xE1D063B8Ef992dB7CDDEb77E9a6592844E75aBc3' },
+    { name: 'FeeRewardController', role: 'Pengatur biaya layanan dan penyesuaian pasar', address: '0xAE5CD607f92bED8482422c10B7e85245eFc7f79E' },
+    { name: 'MiningReward', role: 'Pengelola imbalan penyedia dana dan pencegah manipulasi', address: '0x131692bF40Fb489494A9b3D5982816DD5C67B589' },
+    { name: 'MockERC20 (mUSDC)', role: 'Mata uang dolar digital uji coba protokol', address: '0x7A13F0709937a85037028DBff016Fd2A73122F70' },
   ];
 
-  const tenorBuckets = [
-    {
-      id: 0,
-      name: "1 Minggu",
-      tag: "Short",
-      duration: "7 Hari",
-      holdingPeriod: "3.5 Hari (50%)",
-      description: "Ideal untuk likuiditas cepat dan kebutuhan modal kerja jangka pendek.",
-      rateEstimate: "5.00% - 6.50% APY",
-    },
-    {
-      id: 1,
-      name: "1 Bulan",
-      tag: "Medium",
-      duration: "30 Hari",
-      holdingPeriod: "15 Hari (50%)",
-      description: "Tenor paling seimbang untuk siklus pembiayaan operasional reguler.",
-      rateEstimate: "5.75% - 7.60% APY",
-    },
-    {
-      id: 2,
-      name: "3 Bulan",
-      tag: "Long",
-      duration: "90 Hari",
-      holdingPeriod: "45 Hari (50%)",
-      description: "Kredit kuartalan untuk ekspansi modal dengan imbal hasil terukur.",
-      rateEstimate: "6.80% - 8.90% APY",
-    },
-    {
-      id: 3,
-      name: "1 Tahun",
-      tag: "Extended",
-      duration: "365 Hari",
-      holdingPeriod: "182.5 Hari (50%)",
-      description: "Perjanjian kredit tahunan dengan kepastian suku bunga penuh dari hari pertama.",
-      rateEstimate: "8.10% - 10.50% APY",
-    },
-  ];
+  const bucket = tenorBuckets[calcTenor];
+  const amount = Math.max(0, Number(calcAmount) || 0);
+  const interest = (amount * (bucket.rateBps / 10000) * bucket.days) / 365;
+  const protocolFee = amount * 0.0015;
+  const settlement = calcSide === 'borrow' ? amount + interest + protocolFee : amount + interest - protocolFee;
 
-  const partners = [
-    { name: "Monad", desc: "Parallel EVM" },
-    { name: "Chainlink", desc: "CRE Automation" },
-    { name: "OpenZeppelin", desc: "Audited Security" },
-    { name: "Privy", desc: "Embedded Wallets" },
-    { name: "Envio", desc: "HyperIndex Indexer" },
-    { name: "Wagmi & Viem", desc: "Web3 Client Hooks" },
-    { name: "Foundry", desc: "Smart Contract Suite" },
-  ];
+  const handleCopy = (address: string) => {
+    navigator.clipboard.writeText(address);
+    setCopiedAddress(address);
+    setTimeout(() => setCopiedAddress(null), 2500);
+  };
 
   return (
-    <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col font-sans selection:bg-[#D4FF00] selection:text-slate-950">
-      {/* Top Banner */}
-      <div className="bg-[#0D1424] border-b border-slate-800 px-4 py-2 text-center text-xs text-slate-300">
-        <span className="font-semibold text-white">Monad Testnet (Chain ID 10143)</span>
-        <span className="mx-2">&bull;</span>
-        <span>Protokol kredit fixed-rate 100% onchain pertama di Monad</span>
-        <Link
-          href="/dashboard"
-          className="ml-3 inline-flex items-center text-[#D4FF00] font-medium hover:underline"
-        >
-          Coba Aplikasi &rarr;
-        </Link>
-      </div>
-
-      {/* Navigation Header */}
-      <header className="border-b border-slate-800 bg-[#090D16]/90 backdrop-blur sticky top-0 z-50 px-6 sm:px-12 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-2xl font-black text-white tracking-tight">
-            Fieble
+    <div className="min-h-screen bg-[#e8ebe6] text-[#0e0f0c] flex flex-col selection:bg-[#9fe870] selection:text-[#0e0f0c]">
+      {/* Dynamic Navbar: transitions into floating bar on scroll */}
+      <header
+        className={`fixed z-50 transition-all duration-300 ease-in-out ${
+          isScrolled
+            ? 'top-4 inset-x-4 max-w-5xl mx-auto py-2.5 px-5 bg-[#0e0f0c]/90 text-white backdrop-blur-md border border-stone-800 shadow-2xl rounded-xs'
+            : 'top-0 inset-x-0 w-full py-5 px-6 sm:px-8 bg-transparent text-white border-b border-white/5'
+        }`}
+      >
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <Image
+              src="/icon.png"
+              alt="Fieble Logo"
+              width={32}
+              height={32}
+              className="w-8 h-8 rounded-xs object-contain"
+              priority
+            />
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-black tracking-tight text-white block leading-none">
+                FIEBLE
+              </span>
+              <span className="hidden sm:inline-block text-[10px] font-mono font-bold px-2 py-0.5 rounded-xs bg-white/10 text-stone-300">
+                Monad 10143
+              </span>
+            </div>
           </Link>
-          <span className="text-[11px] px-2 py-0.5 rounded bg-[#D4FF00]/10 text-[#D4FF00] font-mono font-medium border border-[#D4FF00]/20">
-            Monad Testnet
-          </span>
-        </div>
 
-        <nav className="hidden md:flex items-center gap-6 text-sm text-slate-400">
-          <a href="#problem" className="hover:text-white transition-colors">
-            Keunggulan
-          </a>
-          <a href="#tenors" className="hover:text-white transition-colors">
-            Bucket Tenor
-          </a>
-          <a href="#architecture" className="hover:text-white transition-colors">
-            Arsitektur
-          </a>
-          <a href="#contracts" className="hover:text-white transition-colors">
-            Kontrak
-          </a>
-          <a
-            href="https://github.com/kikiexe/Fiable#readme"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-white transition-colors"
-          >
-            Dokumentasi
-          </a>
-        </nav>
+          <nav className="hidden md:flex items-center gap-7 text-xs font-bold text-stone-300">
+            <Link href="/orderbook" className="hover:text-white transition-colors">Buku Penawaran</Link>
+            <Link href="/positions" className="hover:text-white transition-colors">Pinjaman Saya</Link>
+            <Link href="/market-maker" className="hover:text-white transition-colors">Program Imbalan</Link>
+            <a
+              href="https://testnet.monadexplorer.com/address/0x9Ef5459216E8Bf1f12618cb3FA795C71a4cC6BCE"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+            >
+              Kontrak
+            </a>
+          </nav>
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="px-5 py-2 rounded-lg bg-[#D4FF00] text-slate-950 font-bold text-xs hover:bg-[#bce400] transition-colors"
-          >
-            Launch App
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <Link
+              href="/orderbook"
+              className="hidden sm:inline-flex px-3.5 py-1.5 text-xs font-bold rounded-xs border border-white/20 text-white hover:bg-white/10 transition-colors"
+            >
+              Buku Penawaran
+            </Link>
+            <Link
+              href="/dashboard"
+              className="px-4 py-1.5 text-xs font-black rounded-xs bg-[#9fe870] text-[#0e0f0c] hover:bg-[#cdffad] transition-colors"
+            >
+              Mulai Sekarang
+            </Link>
+          </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative px-6 sm:px-12 pt-12 pb-20 border-b border-slate-800 overflow-hidden">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          {/* Left Column: Hero Content */}
-          <div className="lg:col-span-7 flex flex-col gap-6">
-            <div className="self-start inline-flex items-center gap-2 px-3 py-1 rounded-md bg-slate-900/90 border border-slate-800 text-[11px] font-mono text-slate-300">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#D4FF00]" />
-              100% ONCHAIN CREDIT MARKET &bull; BUILT FOR MONAD
-            </div>
-
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.08]">
-              Trade fixed-rate{" "}
-              <span className="text-[#D4FF00]">credit market</span>{" "}
-              from the first block.
-            </h1>
-
-            <p className="text-base sm:text-lg text-slate-400 leading-relaxed max-w-xl">
-              Protokol pasar kredit berjangka terdesentralisasi di Monad. Tentukan suku bunga APY Anda sendiri, pilih dari 4 bucket tenor terstandarisasi, dan nikmati eksekusi instan melalui buku order CLOB dengan cadangan likuiditas AMM Fallback.
-            </p>
-
-            <div className="flex flex-wrap items-center gap-4 pt-2">
-              <Link
-                href="/dashboard"
-                className="px-6 py-3.5 rounded-lg bg-white text-slate-950 font-bold text-sm hover:bg-slate-200 transition-colors shadow-lg"
-              >
-                Launch App
-              </Link>
-              <Link
-                href="/orderbook"
-                className="px-6 py-3.5 rounded-lg bg-[#D4FF00] text-slate-950 font-bold text-sm hover:bg-[#bce400] transition-colors flex items-center gap-2"
-              >
-                Buka Order Book &rarr;
-              </Link>
-              <a
-                href="https://github.com/kikiexe/Fiable#readme"
-                target="_blank"
-                rel="noreferrer"
-                className="px-5 py-3.5 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 text-sm font-semibold transition-colors"
-              >
-                Baca Whitepaper
-              </a>
-            </div>
-          </div>
-
-          {/* Right Column: Protocol Infrastructure Stack Panel */}
-          <div className="lg:col-span-5">
-            <div className="p-6 rounded-2xl bg-[#0D1424]/90 border border-slate-800 flex flex-col gap-6">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-                <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-                  &bull; PROTOCOL INFRASTRUCTURE STACK
-                </div>
-                <span className="text-[11px] font-mono text-slate-500">Chain 10143</span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">Monad Testnet</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Parallel EVM execution, 10,000 TPS, dan block time 1 detik untuk matching cepat.
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">Onchain CLOB</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Price-time priority matching engine tanpa ketergantungan offchain sequencer.
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">AMM Fallback</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Pool cadangan 400k mUSDC menjamin eksekusi saat buku order tipis.
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">Chainlink CRE</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Dynamic fee tuning otomatis dan oracle price feed dengan circuit breaker.
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">WashTradingGuard</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Holding period 50% dan diskon kuadratik spread TWAP membasmi wash trading.
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 flex flex-col gap-2">
-                  <div className="text-xs font-bold text-white">Privy & Envio</div>
-                  <div className="text-[11px] text-slate-400 leading-snug">
-                    Embedded wallet frictionless dan HyperIndex GraphQL untuk query sub-detik.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+      {/* Clean Editorial Hero */}
+      <section className="relative min-h-[100svh] flex flex-col justify-center items-center overflow-hidden bg-[#0e0f0c] text-white px-4 sm:px-6 pt-24 pb-16">
+        {/* WebGL GradientWaves adhering strictly to DESIGN.md tokens */}
+        <div className="absolute inset-0 z-0">
+          <GradientWaves
+            horizonColor="#163300"
+            waveColor="#9fe870"
+            crestColor="#cdffad"
+            className="w-full h-full"
+          />
         </div>
-      </section>
 
-      {/* Partner / Tooling Strip */}
-      <section className="border-b border-slate-800 bg-[#090D16] py-8 px-6 sm:px-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6">
-          <div className="text-[11px] font-mono uppercase tracking-wider text-slate-500 whitespace-nowrap">
-            INFRASTRUCTURE & INTEGRATIONS
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-6 sm:gap-8">
-            {partners.map((p) => (
-              <div key={p.name} className="flex flex-col items-center">
-                <span className="text-sm font-bold text-slate-300">{p.name}</span>
-                <span className="text-[10px] text-slate-500 font-mono">{p.desc}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+        {/* Ambient bottom fade */}
+        <div className="absolute inset-x-0 bottom-0 h-40 z-10 bg-gradient-to-t from-[#0e0f0c] to-transparent pointer-events-none" />
 
-      {/* Problem vs Solution Section */}
-      <section id="problem" className="py-20 px-6 sm:px-12 border-b border-slate-800">
-        <div className="max-w-6xl mx-auto flex flex-col gap-12">
-          <div className="text-center max-w-2xl mx-auto flex flex-col gap-3">
-            <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-              Kepastian Suku Bunga vs Ketidakpastian Variabel
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Suku Bunga Mengambang di DeFi Sudah Usang.
-            </h2>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Pasar kredit konvensional membuat peminjam terjebak dalam lonjakan bunga mendadak. Fieble menghadirkan kepastian suku bunga tetap sejak transaksi pertama disetujui.
-            </p>
+        {/* Hero Content: Bold Scandinavian Fintech Typography */}
+        <div className="relative z-20 max-w-4xl mx-auto text-center flex flex-col items-center">
+          <div className="text-[11px] font-mono tracking-widest text-[#9fe870] uppercase font-bold mb-4">
+            Monad Testnet (Chain ID 10143)
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Conventional Variable Pool */}
-            <div className="p-8 rounded-2xl bg-slate-900/40 border border-slate-800 flex flex-col gap-4">
-              <div className="text-xs font-mono text-rose-400 uppercase tracking-wider font-semibold">
-                Model Konvensional (Aave / Compound)
-              </div>
-              <h3 className="text-xl font-bold text-white">
-                Suku Bunga Mengambang (Floating-Rate)
-              </h3>
-              <ul className="flex flex-col gap-3 text-xs text-slate-400 leading-relaxed mt-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">&times;</span>
-                  <span>Suku bunga berubah tiap detik tergantung rasio utilitas pool.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">&times;</span>
-                  <span>Biaya pinjaman tidak dapat diprediksi untuk kalkulasi bisnis institusi.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">&times;</span>
-                  <span>Volume mining sering dieksploitasi oleh bot wash trading tanpa risiko hold.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-rose-400 font-bold">&times;</span>
-                  <span>Tanpa tanggal jatuh tempo pasti; biaya bunga berjalan tanpa batas waktu.</span>
-                </li>
-              </ul>
-            </div>
+          <h1 className="text-5xl sm:text-7xl lg:text-8xl font-black tracking-tight leading-[0.95] text-white">
+            Pinjaman Terbuka.<br />
+            <span className="text-[#9fe870]">Suku Bunga Pasti.</span>
+          </h1>
 
-            {/* Fieble Fixed-Rate Solution */}
-            <div className="p-8 rounded-2xl bg-slate-900/90 border border-[#D4FF00]/40 flex flex-col gap-4 relative">
-              <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-                Solusi Fieble di Monad
-              </div>
-              <h3 className="text-xl font-bold text-white">
-                Kredit Berjangka Suku Bunga Tetap (Fixed-Rate)
-              </h3>
-              <ul className="flex flex-col gap-3 text-xs text-slate-300 leading-relaxed mt-2">
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4FF00] font-bold">&check;</span>
-                  <span>Suku bunga APY terkunci rapat sejak order matched hingga jatuh tempo.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4FF00] font-bold">&check;</span>
-                  <span>4 bucket tenor terstandarisasi mengonsentrasikan likuiditas pasar.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4FF00] font-bold">&check;</span>
-                  <span>WashTradingGuard memvalidasi durasi hold 50% dan kedekatan harga ke TWAP.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[#D4FF00] font-bold">&check;</span>
-                  <span>AMM Fallback menjamin peminjam tidak pernah kehabisan likuiditas eksekusi.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Tenor Buckets Section */}
-      <section id="tenors" className="py-20 px-6 sm:px-12 border-b border-slate-800 bg-[#090D16]">
-        <div className="max-w-6xl mx-auto flex flex-col gap-12">
-          <div className="text-center max-w-2xl mx-auto flex flex-col gap-3">
-            <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-              Standarisasi Tenor Pasar Kredit
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-              4 Tenor Bucket untuk Segala Kebutuhan Modal.
-            </h2>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Likuiditas terkonsentrasi pada empat jangka waktu terpisah, menghindarkan fragmentasi likuiditas di seluruh buku order onchain.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {tenorBuckets.map((bucket) => (
-              <div
-                key={bucket.id}
-                className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition-colors flex flex-col justify-between"
-              >
-                <div className="flex flex-col gap-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-mono font-bold text-[#D4FF00]">
-                      Bucket #{bucket.id}
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                      {bucket.tag}
-                    </span>
-                  </div>
-
-                  <h3 className="text-xl font-bold text-white">{bucket.name}</h3>
-
-                  <div className="py-2 border-y border-slate-800 text-xs flex flex-col gap-1">
-                    <div className="flex justify-between text-slate-400">
-                      <span>Durasi Tenor:</span>
-                      <span className="font-semibold text-white">{bucket.duration}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-400">
-                      <span>Holding Proteksi:</span>
-                      <span className="font-semibold text-emerald-400">{bucket.holdingPeriod}</span>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {bucket.description}
-                  </p>
-                </div>
-
-                <div className="pt-6">
-                  <Link
-                    href={`/orderbook?tenor=${bucket.id}`}
-                    className="w-full inline-flex justify-center items-center py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-colors"
-                  >
-                    Buka Buku Order &rarr;
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Architecture & Flow Section */}
-      <section id="architecture" className="py-20 px-6 sm:px-12 border-b border-slate-800">
-        <div className="max-w-6xl mx-auto flex flex-col gap-12">
-          <div className="text-center max-w-2xl mx-auto flex flex-col gap-3">
-            <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-              Mekanisme Eksekusi Hybrid
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-              Buku Order CLOB dengan Jaminan AMM Fallback.
-            </h2>
-            <p className="text-sm text-slate-400 leading-relaxed">
-              Kombinasi ketepatan harga dari limit order buku order dan kepastian eksekusi instan dari pool likuiditas otomatis.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col gap-4">
-              <div className="w-8 h-8 rounded bg-blue-500/10 text-blue-400 font-mono font-bold flex items-center justify-center text-sm">
-                1
-              </div>
-              <h3 className="text-lg font-bold text-white">Order Placement Onchain</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Pengguna memasang limit order Lend atau Borrow pada suku bunga target. Dana lender ditarik aman ke dalam kontrak via transfer token terotorisasi tanpa escrow perantara pihak ketiga.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col gap-4">
-              <div className="w-8 h-8 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold flex items-center justify-center text-sm">
-                2
-              </div>
-              <h3 className="text-lg font-bold text-white">Price-Time Priority Matching</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                CLOBEngine mengeksekusi order lawan terbaik secara organik. Setiap match otomatis menghasilkan posisi kredit berjangka baru yang tercatat onchain dan diindeks Envio HyperIndex.
-              </p>
-            </div>
-
-            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col gap-4">
-              <div className="w-8 h-8 rounded bg-[#D4FF00]/10 text-[#D4FF00] font-mono font-bold flex items-center justify-center text-sm">
-                3
-              </div>
-              <h3 className="text-lg font-bold text-white">Residual AMM Fallback Swap</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Jika order market taker belum terpenuhi penuh oleh order limit yang tersedia, sisa volume pinjaman otomatis dialihkan ke AMMFallback pool untuk eksekusi instan tanpa slippage liar.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Verified Contracts Table Section */}
-      <section id="contracts" className="py-20 px-6 sm:px-12 border-b border-slate-800 bg-[#090D16]">
-        <div className="max-w-6xl mx-auto flex flex-col gap-8">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-4">
-            <div>
-              <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider font-semibold">
-                Transparansi & Bukti Onchain
-              </div>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-1">
-                Kontrak Terverifikasi di Monad Testnet
-              </h2>
-            </div>
-            <a
-              href="https://testnet.monadexplorer.com"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-slate-400 hover:text-white font-mono transition-colors"
-            >
-              Buka Monad Explorer &rarr;
-            </a>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/40">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-900 text-slate-400 font-mono uppercase text-[10px] border-b border-slate-800">
-                <tr>
-                  <th className="p-4">Nama Kontrak</th>
-                  <th className="p-4">Peran & Fungsi Utama</th>
-                  <th className="p-4">Alamat Monad Testnet (Chain 10143)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 font-mono">
-                {verifiedContracts.map((c) => (
-                  <tr key={c.name} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="p-4 font-bold text-white">{c.name}</td>
-                    <td className="p-4 text-slate-300 font-sans">{c.role}</td>
-                    <td className="p-4">
-                      <a
-                        href={`https://testnet.monadexplorer.com/address/${c.address}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[#D4FF00] hover:underline"
-                      >
-                        {c.address}
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      {/* Final Call to Action */}
-      <section className="py-24 px-6 sm:px-12 text-center bg-[#0D1424]">
-        <div className="max-w-3xl mx-auto flex flex-col items-center gap-6">
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight">
-            Siap Masuk ke Era Kredit Fixed-Rate di Monad?
-          </h2>
-          <p className="text-sm sm:text-base text-slate-400 leading-relaxed max-w-xl">
-            Coba aplikasi langsung di Monad Testnet. Ambil token uji coba dari faucet dan mulai pasang limit order pinjaman pertama Anda hari ini.
+          <p className="mt-6 text-base sm:text-xl text-stone-300 max-w-2xl leading-relaxed font-normal">
+            Kunci biaya pinjaman dan imbal hasil pendanaan sejak hari pertama tanpa risiko kenaikan bunga di tengah jalan. Kesepakatan langsung antar pengguna dengan jaminan dana cadangan otomatis di jaringan Monad.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link
               href="/dashboard"
-              className="px-8 py-4 rounded-lg bg-white text-slate-950 font-black text-sm hover:bg-slate-200 transition-colors shadow-xl"
+              className="px-8 py-4 text-sm font-black rounded-xs bg-[#9fe870] text-[#0e0f0c] hover:bg-[#cdffad] transition-all duration-200 shadow-lg shadow-[#9fe870]/20 cursor-pointer"
             >
-              Launch App &rarr;
+              Mulai Sekarang
             </Link>
             <Link
               href="/orderbook"
-              className="px-8 py-4 rounded-lg bg-[#D4FF00] text-slate-950 font-black text-sm hover:bg-[#bce400] transition-colors shadow-xl"
+              className="px-8 py-4 text-sm font-semibold rounded-xs border border-white/25 text-white hover:bg-white/10 transition-all duration-200 cursor-pointer"
             >
-              Buka Order Book
+              Lihat Buku Penawaran
+            </Link>
+          </div>
+
+          {/* Transparent Onchain Verification Strip */}
+          <div className="mt-14 pt-8 border-t border-white/10 grid grid-cols-3 gap-6 sm:gap-14 w-full max-w-2xl text-center">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-stone-400 font-mono">Dana Cadangan</div>
+              <div className="text-2xl sm:text-3xl font-black text-white font-mono mt-1">{reserveFormatted}</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">mUSDC di 4 Pilihan Durasi</div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-stone-400 font-mono">Kesepakatan Langsung</div>
+              <div className="text-2xl sm:text-3xl font-black text-[#9fe870] font-mono mt-1">Bunga Pasti</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">Urutan Antrean Terbuka</div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-stone-400 font-mono">Risiko Bunga Berubah</div>
+              <div className="text-2xl sm:text-3xl font-black text-white font-mono mt-1">0%</div>
+              <div className="text-[11px] text-stone-500 mt-0.5">Bunga Pasti Hingga Lunas</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Yield Curve Term Structure Visualizer */}
+      <section className="py-20 px-4 sm:px-6 max-w-5xl mx-auto w-full">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-4 mb-8">
+          <div>
+            <span className="text-xs font-black font-mono tracking-widest uppercase text-[#163300]">
+              PILIHAN JANGKA WAKTU
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-black text-[#0e0f0c] mt-2">
+              Tingkat Bunga Berdasarkan Waktu
+            </h2>
+            <p className="text-sm text-[#454745] mt-1">
+              Pilihan suku bunga tetap di 4 jangka waktu. Klik salah satu titik untuk melihat simulasi perhitungan pinjaman.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 text-xs font-mono">
+            <div className="flex items-center gap-1.5">
+              <span className="w-3 h-1 bg-[#163300] inline-block rounded-xs" />
+              <span className="text-[#0e0f0c] font-bold">Bunga Tetap Fieble</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-stone-400">
+              <span className="w-3 h-0.5 border-t border-dashed border-stone-400 inline-block" />
+              <span>Bunga Fluktuatif Pasar Biasa</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xs border border-stone-200 p-6 sm:p-8 shadow-xs">
+          {/* SVG Yield Curve Graph */}
+          <div className="relative w-full aspect-[21/9] min-h-[220px]">
+            <svg viewBox="0 0 720 180" className="w-full h-full overflow-visible">
+              <defs>
+                <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#9fe870" stopOpacity="0.35" />
+                  <stop offset="100%" stopColor="#9fe870" stopOpacity="0.0" />
+                </linearGradient>
+              </defs>
+
+              {/* Grid Lines */}
+              <line x1="40" y1="30" x2="680" y2="30" stroke="#f0f2ee" strokeWidth="1" />
+              <line x1="40" y1="75" x2="680" y2="75" stroke="#f0f2ee" strokeWidth="1" />
+              <line x1="40" y1="110" x2="680" y2="110" stroke="#f0f2ee" strokeWidth="1" />
+              <line x1="40" y1="140" x2="680" y2="140" stroke="#f0f2ee" strokeWidth="1" />
+
+              {/* Y Axis Labels */}
+              <text x="25" y="34" className="text-[10px] font-mono fill-stone-400" textAnchor="end">10%</text>
+              <text x="25" y="79" className="text-[10px] font-mono fill-stone-400" textAnchor="end">8%</text>
+              <text x="25" y="114" className="text-[10px] font-mono fill-stone-400" textAnchor="end">6%</text>
+              <text x="25" y="144" className="text-[10px] font-mono fill-stone-400" textAnchor="end">4%</text>
+
+              {/* Floating Rate Volatility Cloud Simulation */}
+              <path
+                d="M 80,120 Q 240,60 440,130 T 640,45"
+                fill="none"
+                stroke="#c7c9c5"
+                strokeWidth="1.5"
+                strokeDasharray="4 4"
+              />
+
+              {/* Fixed Yield Curve Area Fill */}
+              <path
+                d={areaPath}
+                fill="url(#curveGradient)"
+              />
+
+              {/* Fixed Yield Curve Primary Line */}
+              <path
+                d={curvePath}
+                fill="none"
+                stroke="#163300"
+                strokeWidth="3.5"
+                strokeLinecap="round"
+              />
+
+              {/* Tenor Interactive Point Nodes */}
+              {tenorBuckets.map((b) => {
+                const isSelected = calcTenor === b.id;
+                return (
+                  <g
+                    key={b.id}
+                    onClick={() => setCalcTenor(b.id)}
+                    className="cursor-pointer group"
+                  >
+                    <line
+                      x1={b.xCoord}
+                      y1={b.yCoord}
+                      x2={b.xCoord}
+                      y2="165"
+                      stroke={isSelected ? "#163300" : "#d8dbd5"}
+                      strokeWidth={isSelected ? "1.5" : "1"}
+                      strokeDasharray="2 2"
+                    />
+                    <circle
+                      cx={b.xCoord}
+                      cy={b.yCoord}
+                      r={isSelected ? "8" : "5"}
+                      fill={isSelected ? "#9fe870" : "#ffffff"}
+                      stroke="#163300"
+                      strokeWidth={isSelected ? "3" : "2"}
+                      className="transition-all duration-200"
+                    />
+                    <text
+                      x={b.xCoord}
+                      y={b.yCoord - 14}
+                      textAnchor="middle"
+                      className={`text-xs font-mono font-bold ${
+                        isSelected ? "fill-[#0e0f0c] font-black" : "fill-stone-600"
+                      }`}
+                    >
+                      {(b.rateBps / 100).toFixed(2)}%
+                    </text>
+                    <text
+                      x={b.xCoord}
+                      y="178"
+                      textAnchor="middle"
+                      className={`text-[11px] font-mono ${
+                        isSelected ? "fill-[#0e0f0c] font-bold" : "fill-stone-400"
+                      }`}
+                    >
+                      {b.name}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-stone-200 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            {tenorBuckets.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => setCalcTenor(b.id)}
+                className={`p-3 rounded-xs text-left transition-all border cursor-pointer ${
+                  calcTenor === b.id
+                    ? "bg-[#e8ebe6] border-[#163300]"
+                    : "bg-[#f6f7f5] border-stone-200 hover:border-stone-300"
+                }`}
+              >
+                <div className="flex justify-between items-center text-[10px] font-mono text-stone-500">
+                  <span>Pilihan #{b.id + 1}</span>
+                  <span className="font-bold text-[#163300]">{b.code}</span>
+                </div>
+                <div className="text-base font-black font-mono text-[#0e0f0c] mt-1">
+                  {(b.rateBps / 100).toFixed(2)}% APY
+                </div>
+                <div className="text-[11px] text-stone-500 mt-0.5">{b.days} Hari</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Advanced Interactive Credit Simulator */}
+      <section className="py-12 px-4 sm:px-6 max-w-5xl mx-auto w-full">
+        <div className="text-center max-w-2xl mx-auto mb-10">
+          <span className="text-xs font-black font-mono tracking-widest uppercase text-[#163300]">
+            KALKULATOR PINJAMAN
+          </span>
+          <h2 className="text-3xl sm:text-4xl font-black text-[#0e0f0c] mt-2">
+            Simulasi Pinjaman Transparan
+          </h2>
+          <p className="text-sm text-[#454745] mt-2">
+            Tentukan jumlah dana dan jangka waktu pinjaman. Ketahui seluruh rincian bunga dan biaya sejak awal.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Controls Column */}
+          <div className="lg:col-span-7 bg-white text-[#0e0f0c] p-6 sm:p-8 rounded-xs border border-stone-200 shadow-xs">
+            <div className="flex items-center justify-between pb-4 border-b border-stone-200">
+              <span className="font-bold text-base">Pilihan Simulasi</span>
+              <div className="flex items-center gap-1 p-0.5 bg-[#e8ebe6] rounded-xs text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setCalcSide('borrow')}
+                  className={`px-3 py-1.5 rounded-xs transition-all cursor-pointer ${
+                    calcSide === 'borrow' ? 'bg-[#0e0f0c] text-white' : 'text-[#454745] hover:text-[#0e0f0c]'
+                  }`}
+                >
+                  Pinjam Dana
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalcSide('lend')}
+                  className={`px-3 py-1.5 rounded-xs transition-all cursor-pointer ${
+                    calcSide === 'lend' ? 'bg-[#0e0f0c] text-white' : 'text-[#454745] hover:text-[#0e0f0c]'
+                  }`}
+                >
+                  Beri Pinjaman
+                </button>
+              </div>
+            </div>
+
+            {/* Principal Input + Presets */}
+            <div className="mt-6">
+              <div className="flex justify-between items-center mb-1.5">
+                <label htmlFor="calc-amount-input" className="text-[10px] font-bold text-[#454745] uppercase tracking-wider">
+                  Jumlah Dana (mUSDC)
+                </label>
+                <span className="text-[10px] font-mono text-stone-500">Maks. 100.000</span>
+              </div>
+              <input
+                id="calc-amount-input"
+                type="number"
+                value={calcAmount}
+                onChange={(e) => setCalcAmount(e.target.value)}
+                className="w-full text-2xl font-black font-mono px-4 py-3 bg-[#f6f7f5] rounded-xs border border-stone-300 focus:outline-none focus:ring-2 focus:ring-[#0e0f0c] text-[#0e0f0c]"
+                placeholder="10000"
+              />
+
+              {/* Fluid Range Slider */}
+              <div className="mt-3">
+                <input
+                  type="range"
+                  min="500"
+                  max="100000"
+                  step="500"
+                  value={amount}
+                  onChange={(e) => setCalcAmount(e.target.value)}
+                  className="w-full h-1.5 bg-stone-200 rounded-xs appearance-none cursor-pointer accent-[#163300]"
+                />
+              </div>
+
+              {/* Quick Chip Presets */}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {amountPresets.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setCalcAmount(preset)}
+                    className={`px-2.5 py-1 text-xs font-mono font-bold rounded-xs transition-colors cursor-pointer ${
+                      calcAmount === preset
+                        ? 'bg-[#0e0f0c] text-white'
+                        : 'bg-[#f6f7f5] text-[#454745] hover:bg-stone-200 border border-stone-200'
+                    }`}
+                  >
+                    {Number(preset) >= 1000 ? `${Number(preset) / 1000}k` : preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tenor Selection */}
+            <div className="mt-6">
+              <div className="text-[10px] font-bold text-[#454745] uppercase tracking-wider mb-2">
+                Pilih Jangka Waktu Pinjaman
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {tenorBuckets.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => setCalcTenor(b.id)}
+                    className={`py-3 px-2 rounded-xs text-xs font-bold font-mono transition-all border cursor-pointer ${
+                      calcTenor === b.id
+                        ? 'bg-[#9fe870] border-[#9fe870] text-[#0e0f0c]'
+                        : 'bg-[#f6f7f5] border-stone-200 text-[#454745] hover:border-stone-400'
+                    }`}
+                  >
+                    <div className="font-bold text-sm">{b.name}</div>
+                    <div className="text-[10px] opacity-75 mt-0.5">{(b.rateBps / 100).toFixed(2)}% APY</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Link */}
+            <Link
+              href={`/orderbook?tenor=${calcTenor}&side=${calcSide === 'borrow' ? '1' : '0'}`}
+              className="mt-6 w-full py-4 text-center text-sm font-black rounded-xs bg-[#0e0f0c] text-white hover:bg-[#163300] transition-colors block"
+            >
+              Lanjutkan ke Pasar Pinjaman
+            </Link>
+          </div>
+
+          {/* Breakdown & Fixed-vs-Floating Insight Column */}
+          <div className="lg:col-span-5 flex flex-col gap-4">
+            {/* Settlement Summary & Schedule Card */}
+            <div className="bg-white p-6 rounded-xs border border-stone-200 shadow-xs flex flex-col gap-4">
+              <div className="flex justify-between items-center pb-3 border-b border-stone-200">
+                <div className="flex items-center gap-1 p-0.5 bg-[#e8ebe6] rounded-xs text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setCalcViewTab('summary')}
+                    className={`px-2.5 py-1 rounded-xs transition-colors cursor-pointer ${
+                      calcViewTab === 'summary' ? 'bg-[#0e0f0c] text-white' : 'text-[#454745] hover:text-[#0e0f0c]'
+                    }`}
+                  >
+                    Rincian
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalcViewTab('schedule')}
+                    className={`px-2.5 py-1 rounded-xs transition-colors cursor-pointer ${
+                      calcViewTab === 'schedule' ? 'bg-[#0e0f0c] text-white' : 'text-[#454745] hover:text-[#0e0f0c]'
+                    }`}
+                  >
+                    Jadwal Arus Kas
+                  </button>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-xs bg-[#e2f6d5] text-[#163300]">
+                  100% Bunga Pasti
+                </span>
+              </div>
+
+              {calcViewTab === 'summary' ? (
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[#454745]">Jumlah Pokok Pinjaman</span>
+                    <span className="font-mono font-bold text-[#0e0f0c]">{amount.toLocaleString()} mUSDC</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#454745]">Tingkat Bunga Pasti</span>
+                    <span className="font-mono font-bold text-[#2ead4b]">{(bucket.rateBps / 100).toFixed(2)}% APY</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#454745]">Beban Bunga ({bucket.days} Hari)</span>
+                    <span className="font-mono font-bold text-[#0e0f0c]">{interest.toFixed(2)} mUSDC</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#454745]">Biaya Layanan (0,15%)</span>
+                    <span className="font-mono text-stone-500">{protocolFee.toFixed(2)} mUSDC</span>
+                  </div>
+                  <div className="pt-3 border-t border-stone-200 flex justify-between items-baseline font-bold">
+                    <span className="text-sm text-[#0e0f0c]">{calcSide === 'borrow' ? 'Total Pembayaran Kembali' : 'Total Penerimaan Bersih'}</span>
+                    <span className="font-mono text-xl text-[#0e0f0c]">{settlement.toFixed(2)} mUSDC</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 text-xs font-mono">
+                  <div className="p-2.5 rounded-xs bg-[#f6f7f5] border border-stone-200">
+                    <div className="flex justify-between font-bold text-[#0e0f0c]">
+                      <span>Hari Pertama (Pencairan)</span>
+                      <span className={calcSide === 'borrow' ? 'text-[#2ead4b]' : 'text-[#d03238]'}>
+                        {calcSide === 'borrow' ? `+${(amount - protocolFee).toFixed(2)}` : `-${amount.toFixed(2)}`} mUSDC
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#868685] font-sans mt-0.5">
+                      {calcSide === 'borrow' ? 'Dana masuk langsung ke dompet Anda (dipotong biaya layanan 0,15%)' : 'Dana disiapkan untuk disalurkan ke peminjam'}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xs bg-[#f6f7f5] border border-stone-200">
+                    <div className="flex justify-between font-bold text-[#0e0f0c]">
+                      <span>Hari ke-{bucket.days} (Jatuh Tempo)</span>
+                      <span className={calcSide === 'borrow' ? 'text-[#d03238]' : 'text-[#2ead4b]'}>
+                        {calcSide === 'borrow' ? `-${(amount + interest).toFixed(2)}` : `+${(amount + interest - protocolFee).toFixed(2)}`} mUSDC
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#868685] font-sans mt-0.5">
+                      {calcSide === 'borrow' ? 'Pelunasan pokok pinjaman ditambah bunga yang telah disepakati' : 'Pengembalian pokok pinjaman beserta keuntungan bunga'}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Fixed vs Floating Structural Comparison */}
+            <div className="bg-[#163300] text-white p-6 rounded-xs shadow-xs flex flex-col gap-3">
+              <div className="text-xs font-black uppercase tracking-wider text-[#9fe870]">
+                Keunggulan Bunga Tetap
+              </div>
+              <p className="text-xs text-stone-200 leading-relaxed">
+                Pada pinjaman konvensional dengan bunga yang berubah-ubah, suku bunga pinjaman bisa melonjak drastis sewaktu-waktu. Di Fiable, tingkat bunga dikunci sejak awal sehingga tagihan Anda tetap sama sampai lunas.
+              </p>
+              <div className="p-3.5 rounded-xs bg-white/10 border border-white/10 flex flex-col gap-1 text-xs">
+                <div className="text-stone-300 text-[11px]">Kepastian Penuh Sejak Awal:</div>
+                <div className="font-mono font-bold text-[#9fe870]">
+                  Tingkat bunga tidak akan berubah hingga pinjaman selesai
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Dual Engine Architecture: Structural Comparison */}
+      <section className="py-20 px-4 sm:px-6 bg-white border-y border-stone-200">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <span className="text-xs font-black font-mono tracking-widest uppercase text-[#163300]">METODE TRANSAKSI</span>
+            <h2 className="text-3xl sm:text-4xl font-black text-[#0e0f0c] mt-2">Dua Jalur Transaksi Fleksibel</h2>
+            <p className="text-sm text-[#454745] mt-2">
+              Pilih suku bunga sendiri lewat pasar terbuka atau cairkan pinjaman seketika melalui dana cadangan otomatis.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-7 rounded-xs bg-[#f6f7f5] border border-stone-200 flex flex-col justify-between">
+              <div>
+                <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider mb-2">
+                  Jalur 1: Pasar Terbuka
+                </div>
+                <h3 className="text-2xl font-black text-[#0e0f0c]">Tentukan Bunga Sendiri</h3>
+                <p className="text-sm text-[#454745] mt-3 leading-relaxed">
+                  Pasar terbuka langsung antar pengguna. Anda bebas menentukan suku bunga terbaik yang Anda inginkan dan sistem menyusun antrean secara adil berdasarkan waktu pengajuan.
+                </p>
+
+                <div className="mt-6 pt-4 border-t border-stone-200 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Penetapan Bunga</span>
+                    <span className="font-semibold text-[#0e0f0c]">Bebas Sesuai Target Anda</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Perubahan Bunga</span>
+                    <span className="font-mono font-bold text-[#2ead4b]">0% (Pasti Terkunci)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Penyelesaian Transaksi</span>
+                    <span className="font-semibold text-[#0e0f0c]">Otomatis & Terbuka</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Link
+                  href="/orderbook"
+                  className="w-full py-3 text-center text-xs font-bold rounded-xs bg-[#e8ebe6] hover:bg-[#9fe870] text-[#0e0f0c] transition-colors block"
+                >
+                  Buka Pasar Penawaran
+                </Link>
+              </div>
+            </div>
+
+            <div className="p-7 rounded-xs bg-[#f6f7f5] border border-stone-200 flex flex-col justify-between">
+              <div>
+                <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider mb-2">
+                  Jalur 2: Pencairan Instan
+                </div>
+                <h3 className="text-2xl font-black text-[#0e0f0c]">Dana Cadangan Otomatis</h3>
+                <p className="text-sm text-[#454745] mt-3 leading-relaxed">
+                  Penyedia dana cadangan otomatis yang siap melayani pinjaman atau pendanaan seketika tanpa perlu menunggu antrean kesepakatan pengguna lain.
+                </p>
+
+                <div className="mt-6 pt-4 border-t border-stone-200 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Total Dana Siaga</span>
+                    <span className="font-mono font-bold text-[#0e0f0c]">{reserveFormatted} mUSDC</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Kecepatan Transaksi</span>
+                    <span className="font-mono font-bold text-[#2ead4b]">Instan Seketika</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stone-500">Penetapan Bunga</span>
+                    <span className="font-semibold text-[#0e0f0c]">Mengikuti Rata-rata Pasar</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
+                <Link
+                  href="/market-maker"
+                  className="w-full py-3 text-center text-xs font-bold rounded-xs bg-[#e8ebe6] hover:bg-[#9fe870] text-[#0e0f0c] transition-colors block"
+                >
+                  Pelajari Program Imbalan
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Verified Contracts Section */}
+      <section className="py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-8">
+          <div>
+            <span className="text-xs font-black font-mono tracking-widest uppercase text-[#163300]">KONTRAK TERVERIFIKASI</span>
+            <h2 className="text-3xl sm:text-4xl font-black text-[#0e0f0c] mt-2">Penerapan di Monad Testnet</h2>
+          </div>
+          <div className="text-xs font-mono text-stone-500">
+            Chain ID: 10143
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xs border border-stone-300 bg-white shadow-xs">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-stone-200 bg-[#f6f7f5] text-[#454745] font-mono">
+              <tr>
+                <th className="py-3 px-4 font-bold">Nama Kontrak</th>
+                <th className="py-3 px-4 font-bold">Fungsi Utama</th>
+                <th className="py-3 px-4 font-bold">Alamat Kontrak</th>
+                <th className="py-3 px-4 font-bold text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {verifiedContracts.map((c) => (
+                <tr key={c.name} className="hover:bg-stone-50 transition-colors">
+                  <td className="py-3.5 px-4 font-mono font-bold text-[#0e0f0c]">{c.name}</td>
+                  <td className="py-3.5 px-4 text-[#454745]">{c.role}</td>
+                  <td className="py-3.5 px-4 font-mono text-stone-600">
+                    <span className="hidden sm:inline">{c.address}</span>
+                    <span className="sm:hidden">{c.address.slice(0, 8)}...{c.address.slice(-6)}</span>
+                  </td>
+                  <td className="py-3.5 px-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(c.address)}
+                        className="px-2.5 py-1 text-[11px] font-mono font-semibold rounded-xs bg-[#e8ebe6] hover:bg-stone-300 text-[#0e0f0c] transition-colors cursor-pointer"
+                      >
+                        {copiedAddress === c.address ? "Tersalin" : "Salin"}
+                      </button>
+                      <a
+                        href={`https://testnet.monadexplorer.com/address/${c.address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 text-[11px] font-mono font-bold rounded-xs bg-[#0e0f0c] text-white hover:bg-[#163300] transition-colors"
+                      >
+                        Explorer
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Final Action Band */}
+      <section className="py-20 px-4 sm:px-6 bg-[#0e0f0c] text-white">
+        <div className="max-w-3xl mx-auto text-center">
+          <h2 className="text-3xl sm:text-5xl font-black tracking-tight mb-4">
+            Mulai Pinjaman Bunga Pasti di Monad
+          </h2>
+          <p className="text-sm sm:text-base text-stone-300 max-w-xl mx-auto mb-8 leading-relaxed">
+            Hubungkan dompet Anda, ambil saldo uji coba 10.000 mUSDC secara gratis, dan pasang penawaran pinjaman pertama Anda.
+          </p>
+          <div className="flex flex-col sm:flex-row justify-center gap-3">
+            <Link
+              href="/dashboard"
+              className="px-8 py-4 rounded-xs bg-[#9fe870] text-[#0e0f0c] font-black text-sm hover:bg-[#cdffad] transition-colors cursor-pointer"
+            >
+              Mulai Sekarang
+            </Link>
+            <Link
+              href="/orderbook"
+              className="px-8 py-4 rounded-xs border border-stone-700 text-stone-100 font-semibold text-sm hover:bg-stone-800 transition-colors cursor-pointer"
+            >
+              Buku Penawaran
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800 py-12 px-6 sm:px-12 bg-[#090D16] text-xs text-slate-500">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-6">
-          <div className="flex flex-col gap-1 text-center sm:text-left">
-            <span className="text-base font-black text-white">Fieble Protocol</span>
-            <span>Fully Onchain Fixed-Rate Credit Market on Monad.</span>
+      {/* Clean Footer */}
+      <footer className="bg-[#0e0f0c] border-t border-stone-800 py-8 px-4 sm:px-6 text-xs text-stone-400">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Image
+              src="/icon.png"
+              alt="Fieble Logo"
+              width={20}
+              height={20}
+              className="w-5 h-5 rounded-xs object-contain"
+            />
+            <span className="font-mono text-white font-bold">FIEBLE</span>
+            <span className="text-stone-600">/</span>
+            <span>Pasar Pinjaman Bunga Pasti di Monad</span>
           </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-6 text-slate-400 font-medium">
-            <Link href="/dashboard" className="hover:text-white transition-colors">
-              Dashboard
-            </Link>
-            <Link href="/orderbook" className="hover:text-white transition-colors">
-              Order Book
-            </Link>
-            <Link href="/positions" className="hover:text-white transition-colors">
-              Posisi Aktif
-            </Link>
-            <Link href="/market-maker" className="hover:text-white transition-colors">
-              Market Maker
-            </Link>
-            <a
-              href="https://github.com/kikiexe/Fiable"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-white transition-colors"
-            >
-              GitHub
-            </a>
+          <div className="flex flex-wrap items-center gap-5 font-medium text-stone-300">
+            <Link href="/dashboard" className="hover:text-white transition-colors">Ringkasan</Link>
+            <Link href="/orderbook" className="hover:text-white transition-colors">Buku Penawaran</Link>
+            <Link href="/positions" className="hover:text-white transition-colors">Pinjaman Saya</Link>
+            <Link href="/market-maker" className="hover:text-white transition-colors">Program Imbalan</Link>
+            <a href="https://github.com/kikiexe/Fiable" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">GitHub</a>
           </div>
-        </div>
-
-        <div className="max-w-6xl mx-auto mt-8 pt-6 border-t border-slate-800/60 text-center text-[11px] text-slate-600">
-          &copy; 2026 Fieble Protocol. All rights reserved.
         </div>
       </footer>
     </div>

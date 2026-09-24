@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useAccount } from "wagmi";
+import { useAccount, useReadContract } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
-import { ConnectButton } from "@/components/wallet/ConnectButton";
-import { FaucetButton } from "@/components/faucet/FaucetButton";
+import { AppHeader } from "@/components/AppHeader";
 import { useProtocolFee } from "@/hooks/useProtocolFee";
 import { usePositions } from "@/hooks/usePositions";
 import { useMiningReward } from "@/hooks/useMiningReward";
-import { formatUSDC } from "@/lib/contracts";
+import { formatUSDC, CONTRACT_ADDRESSES, ERC20_ABI } from "@/lib/contracts";
 
 export default function DashboardPage() {
   const { authenticated } = usePrivy();
@@ -18,270 +17,222 @@ export default function DashboardPage() {
   const { data: positionsData, isLoading: isPositionsLoading } = usePositions(address);
   const { data: miningData, isLoading: isMiningLoading } = useMiningReward(address);
 
+  // Live balance read from ERC20 token contract
+  const { data: balanceData } = useReadContract({
+    address: CONTRACT_ADDRESSES.mockUSDC,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+  });
+
+  // Live reserve balance held by AMMFallback contract
+  const { data: ammReserveBalance } = useReadContract({
+    address: CONTRACT_ADDRESSES.mockUSDC,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [CONTRACT_ADDRESSES.ammFallback],
+  });
+
   const asLender = positionsData?.asLender ?? [];
   const asBorrower = positionsData?.asBorrower ?? [];
   const totalPositionsCount = asLender.length + asBorrower.length;
   const totalWeightedVolume = miningData?.totalWeightedVolume ?? BigInt(0);
 
+  const rawBalance = typeof balanceData === "bigint" ? balanceData : BigInt(0);
+  const rawReserve = typeof ammReserveBalance === "bigint" ? ammReserveBalance : BigInt(400_000_000_000);
+
   return (
-    <div className="min-h-screen bg-[#090D16] text-slate-100 flex flex-col font-sans">
-      {/* Top Banner */}
-      <div className="bg-[#0D1424] border-b border-slate-800/80 px-4 py-2 text-center text-xs text-slate-400">
-        <span className="font-semibold text-slate-300">Monad Testnet (Chain ID 10143)</span>
-        <span className="mx-2">&bull;</span>
-        <span>Protokol kredit fixed-rate 100% onchain pertama di Monad</span>
-      </div>
+    <div className="min-h-screen bg-[#e8ebe6] text-[#0e0f0c] flex flex-col">
+      <AppHeader />
 
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-[#090D16]/90 backdrop-blur sticky top-0 z-50 px-6 sm:px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-xl font-black text-white tracking-tight hover:text-slate-200 transition-colors">
-            Fieble
-          </Link>
-          <span className="text-[11px] px-2.5 py-0.5 rounded-md bg-[#D4FF00]/10 text-[#D4FF00] font-mono font-medium border border-[#D4FF00]/20">
-            v1.0 Testnet
-          </span>
-        </div>
-
-        <nav className="flex items-center gap-4 text-xs sm:text-sm font-medium">
-          <Link href="/dashboard" className="text-white font-semibold">
-            Dashboard
-          </Link>
-          <Link href="/orderbook" className="text-slate-400 hover:text-slate-200 transition-colors">
-            Order Book
-          </Link>
-          <Link href="/positions" className="text-slate-400 hover:text-slate-200 transition-colors">
-            Posisi Aktif
-          </Link>
-          <Link href="/market-maker" className="text-slate-400 hover:text-slate-200 transition-colors">
-            Market Maker
-          </Link>
-          <FaucetButton />
-          <ConnectButton />
-        </nav>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6 sm:p-8 flex flex-col gap-8">
-        {/* Welcome Header */}
-        <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-4 pb-6 border-b border-slate-800">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-8">
+        {/* Page Title & Account Strip */}
+        <div className="flex flex-col sm:flex-row justify-between sm:items-end gap-4 pb-6 border-b border-stone-300">
           <div>
-            <div className="text-xs font-mono text-[#D4FF00] uppercase tracking-wider mb-1">
-              Pusat Kendali Protokol
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Dashboard Pasar Kredit Fieble
+            <span className="text-[10px] font-mono font-black tracking-widest uppercase text-[#163300]">
+              PEMANTAUAN AKUN
+            </span>
+            <h1 className="text-2xl sm:text-4xl font-black text-[#0e0f0c] tracking-tight">
+              Ringkasan Aktivitas Pasar
             </h1>
-            <p className="text-sm text-slate-400 mt-1 max-w-xl">
-              Pantau status likuiditas protokol, kelola posisi kredit berjalan, dan monitor imbal hasil Matched-Volume Mining onchain.
+            <p className="text-sm text-[#454745] mt-1 max-w-xl">
+              Pantau ketersediaan dana pasar, status pinjaman dan pendanaan Anda, serta perolehan imbalan.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {authenticated && address && (
+              <div className="px-3.5 py-2 rounded-xs bg-white border border-stone-200 text-xs font-mono">
+                <span className="text-[#868685]">Saldo: </span>
+                <strong className="text-[#0e0f0c]">{formatUSDC(rawBalance)} mUSDC</strong>
+              </div>
+            )}
             <Link
               href="/orderbook"
-              className="px-5 py-2.5 rounded-lg bg-[#D4FF00] text-slate-950 font-bold text-xs hover:bg-[#bce400] transition-colors"
+              className="px-5 py-2.5 rounded-xs bg-[#9fe870] text-[#0e0f0c] font-black text-xs hover:bg-[#cdffad] transition-colors shadow-xs"
             >
-              + Buka Order Baru
+              + Buat Penawaran Baru
             </Link>
           </div>
         </div>
 
-        {/* Protocol Overview Cards */}
+        {/* Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                Protocol Fee Dinamis
-              </div>
-              <div className="text-2xl font-bold font-mono text-white mt-1">
-                {feePercent.toFixed(2)}%
-              </div>
+          <div className="p-5 rounded-xs bg-white border border-stone-200 shadow-xs">
+            <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider">
+              Biaya Layanan Saat Ini
             </div>
-            <div className="text-[11px] text-slate-500 mt-3 flex items-center justify-between">
+            <div className="text-2xl font-black font-mono text-[#0e0f0c] mt-1">
+              {feePercent.toFixed(2)}%
+            </div>
+            <div className="text-[11px] text-[#868685] mt-3 flex items-center justify-between">
               <span>{feeBps !== undefined ? `${feeBps.toString()} bps` : "15 bps"}</span>
-              <span className="text-[#D4FF00] font-mono">Chainlink CRE</span>
+              <span className="font-mono font-bold text-[#163300] bg-[#e2f6d5] px-1.5 py-0.5 rounded-2xs">
+                Otomatis
+              </span>
             </div>
           </div>
 
-          <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                Likuiditas Cadangan AMM
-              </div>
-              <div className="text-2xl font-bold font-mono text-emerald-400 mt-1">
-                400,000 mUSDC
-              </div>
+          <div className="p-5 rounded-xs bg-white border border-stone-200 shadow-xs">
+            <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider">
+              Dana Cadangan Otomatis
             </div>
-            <div className="text-[11px] text-slate-500 mt-3 flex items-center justify-between">
-              <span>4 Tenor Buckets</span>
-              <span className="text-emerald-400">100k / bucket</span>
+            <div className="text-2xl font-black font-mono text-[#2ead4b] mt-1">
+              {formatUSDC(rawReserve)} mUSDC
+            </div>
+            <div className="text-[11px] text-[#868685] mt-3 flex items-center justify-between">
+              <span>4 Jangka Waktu</span>
+              <span className="text-[#2ead4b] font-bold">100k / durasi</span>
             </div>
           </div>
 
-          <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                Posisi Kredit Anda
-              </div>
-              <div className="text-2xl font-bold font-mono text-white mt-1">
-                {authenticated && address ? (
-                  isPositionsLoading ? "..." : `${totalPositionsCount} Posisi`
-                ) : (
-                  "Wallet Offline"
-                )}
-              </div>
+          <div className="p-5 rounded-xs bg-white border border-stone-200 shadow-xs">
+            <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider">
+              Pinjaman & Pendanaan Anda
             </div>
-            <div className="text-[11px] text-slate-500 mt-3 flex items-center justify-between">
-              <span>{asLender.length} Lend &bull; {asBorrower.length} Borrow</span>
-              <Link href="/positions" className="text-blue-400 hover:underline">
+            <div className="text-2xl font-black font-mono text-[#0e0f0c] mt-1">
+              {authenticated && address ? (
+                isPositionsLoading ? "..." : `${totalPositionsCount} Transaksi`
+              ) : (
+                "Belum Terhubung"
+              )}
+            </div>
+            <div className="text-[11px] text-[#868685] mt-3 flex items-center justify-between">
+              <span>{asLender.length} Pendanaan &bull; {asBorrower.length} Pinjaman</span>
+              <Link href="/positions" className="text-[#0e0f0c] font-bold hover:underline">
                 Rincian &rarr;
               </Link>
             </div>
           </div>
 
-          <div className="p-5 rounded-xl bg-slate-900/60 border border-slate-800 flex flex-col justify-between">
-            <div>
-              <div className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
-                Weighted Volume MM
-              </div>
-              <div className="text-2xl font-bold font-mono text-[#D4FF00] mt-1">
-                {authenticated && address ? (
-                  isMiningLoading ? "..." : `${formatUSDC(totalWeightedVolume)} mUSDC`
-                ) : (
-                  "0.00 mUSDC"
-                )}
-              </div>
+          <div className="p-5 rounded-xs bg-white border border-stone-200 shadow-xs">
+            <div className="text-[10px] font-mono font-bold text-[#868685] uppercase tracking-wider">
+              Poin Keaktifan Pasar
             </div>
-            <div className="text-[11px] text-slate-500 mt-3 flex items-center justify-between">
-              <span>WashTradingGuard</span>
-              <Link href="/market-maker" className="text-[#D4FF00] hover:underline">
-                Mining &rarr;
+            <div className="text-2xl font-black font-mono text-[#163300] mt-1">
+              {authenticated && address ? (
+                isMiningLoading ? "..." : `${formatUSDC(totalWeightedVolume)} mUSDC`
+              ) : (
+                "0.00 mUSDC"
+              )}
+            </div>
+            <div className="text-[11px] text-[#868685] mt-3 flex items-center justify-between">
+              <span>Proteksi Kejujuran</span>
+              <Link href="/market-maker" className="text-[#0e0f0c] font-bold hover:underline">
+                Imbalan &rarr;
               </Link>
             </div>
           </div>
         </div>
 
-        {/* 3 Action Pillars */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Pillar 1: Order Book */}
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition-colors flex flex-col justify-between">
+        {/* Action Pillars */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-6 rounded-xs bg-white border border-stone-200 hover:border-stone-300 transition-colors flex flex-col justify-between">
             <div className="flex flex-col gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 font-bold font-mono text-sm">
+              <div className="w-10 h-10 rounded-xs bg-[#0e0f0c] flex items-center justify-center text-[#9fe870] font-black font-mono text-sm">
                 01
               </div>
-              <h2 className="text-lg font-bold text-white">
-                Buku Order Kredit (CLOB Engine)
+              <h2 className="text-base font-black text-[#0e0f0c]">
+                Pasar Bebas Antar Pengguna
               </h2>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Tentukan suku bunga APY Anda sendiri dan pasang limit order pinjaman untuk 4 bucket tenor (1W, 1M, 3M, 1Y). Jika pesanan belum matched di buku order, AMM Fallback pool siap mengeksekusi secara instan.
+              <p className="text-xs text-[#454745] leading-relaxed">
+                Tentukan suku bunga sendiri untuk jangka waktu 7 sampai 365 hari. Ada dana cadangan otomatis jika tawaran belum ada yang menyamai.
               </p>
             </div>
-            <div className="pt-6">
-              <Link
-                href="/orderbook"
-                className="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-colors"
-              >
-                Buka Order Book &rarr;
+            <div className="pt-5">
+              <Link href="/orderbook" className="w-full py-2.5 text-center text-xs font-bold rounded-xs bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#9fe870] transition-colors block">
+                Buka Buku Penawaran
               </Link>
             </div>
           </div>
 
-          {/* Pillar 2: Active Positions */}
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition-colors flex flex-col justify-between">
+          <div className="p-6 rounded-xs bg-white border border-stone-200 hover:border-stone-300 transition-colors flex flex-col justify-between">
             <div className="flex flex-col gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold font-mono text-sm">
+              <div className="w-10 h-10 rounded-xs bg-[#2ead4b]/10 border border-[#2ead4b]/20 flex items-center justify-center text-[#2ead4b] font-black font-mono text-sm">
                 02
               </div>
-              <h2 className="text-lg font-bold text-white">
-                Posisi Aktif & Pelunasan
+              <h2 className="text-base font-black text-[#0e0f0c]">
+                Daftar Pinjaman & Pelunasan
               </h2>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Pantau pinjaman yang Anda berikan (Lender) maupun yang Anda ambil (Borrower). Hitung mundur tanggal jatuh tempo dan lakukan pelunasan pokok beserta imbal hasil bunga secara onchain dengan 1 klik.
+              <p className="text-xs text-[#454745] leading-relaxed">
+                Pantau tanggal jatuh tempo pinjaman Anda dan lakukan pelunasan langsung kapan saja.
               </p>
             </div>
-            <div className="pt-6">
-              <Link
-                href="/positions"
-                className="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-colors"
-              >
-                Kelola Posisi Kredit &rarr;
+            <div className="pt-5">
+              <Link href="/positions" className="w-full py-2.5 text-center text-xs font-bold rounded-xs bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#9fe870] transition-colors block">
+                Lihat Pinjaman Saya
               </Link>
             </div>
           </div>
 
-          {/* Pillar 3: Market Maker Dashboard */}
-          <div className="p-6 rounded-2xl bg-slate-900/40 border border-slate-800 hover:border-slate-700 transition-colors flex flex-col justify-between">
+          <div className="p-6 rounded-xs bg-white border border-stone-200 hover:border-stone-300 transition-colors flex flex-col justify-between">
             <div className="flex flex-col gap-3">
-              <div className="w-10 h-10 rounded-lg bg-[#D4FF00]/10 border border-[#D4FF00]/20 flex items-center justify-center text-[#D4FF00] font-bold font-mono text-sm">
+              <div className="w-10 h-10 rounded-xs bg-[#163300]/10 border border-[#163300]/20 flex items-center justify-center text-[#163300] font-black font-mono text-sm">
                 03
               </div>
-              <h2 className="text-lg font-bold text-white">
-                Market Maker & Liquidity Mining
+              <h2 className="text-base font-black text-[#0e0f0c]">
+                Program Imbalan Keaktifan
               </h2>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Dapatkan alokasi volume terbobot untuk setiap match limit order dua sisi yang Anda pasang. Dilindungi oleh WashTradingGuard dengan holding period minimal 50% tenor dan diskon deviasi spread TWAP.
+              <p className="text-xs text-[#454745] leading-relaxed">
+                Dapatkan imbalan tambahan karena membantu menyediakan dana di pasar secara aktif dan jujur.
               </p>
             </div>
-            <div className="pt-6">
-              <Link
-                href="/market-maker"
-                className="w-full inline-flex justify-center items-center py-2.5 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-colors"
-              >
-                Buka Dashboard MM &rarr;
+            <div className="pt-5">
+              <Link href="/market-maker" className="w-full py-2.5 text-center text-xs font-bold rounded-xs bg-[#e8ebe6] text-[#0e0f0c] hover:bg-[#9fe870] transition-colors block">
+                Lihat Program Imbalan
               </Link>
             </div>
           </div>
         </div>
 
-        {/* Quick Testing Walkthrough */}
-        <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-col gap-4">
+        {/* Quick Testing Guide */}
+        <div className="p-6 rounded-xs bg-white border border-stone-200 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Panduan Cepat Uji Coba di Monad Testnet
+            <h3 className="text-xs font-black text-[#0e0f0c] uppercase tracking-wider font-mono">
+              Panduan Uji Coba
             </h3>
-            <span className="text-xs text-slate-400 font-mono">Chain 10143</span>
+            <span className="text-[10px] text-[#868685] font-mono font-bold">Chain 10143</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80">
-              <div className="font-mono text-[#D4FF00] font-bold mb-1">Langkah 1</div>
-              <div className="font-semibold text-white mb-1">Klaim Saldo Uji Coba</div>
-              <p className="text-slate-400 leading-relaxed">
-                Klik tombol <strong>Faucet +10k mUSDC</strong> di navigasi atas untuk mencetak token dummy di dompet Anda.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80">
-              <div className="font-mono text-[#D4FF00] font-bold mb-1">Langkah 2</div>
-              <div className="font-semibold text-white mb-1">Pasang Limit Order</div>
-              <p className="text-slate-400 leading-relaxed">
-                Pilih tenor bucket (misal: 1 Minggu), tentukan suku bunga target (misal: 6.50%), dan submit order sisi Lend.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80">
-              <div className="font-mono text-[#D4FF00] font-bold mb-1">Langkah 3</div>
-              <div className="font-semibold text-white mb-1">Verifikasi di Posisi Aktif</div>
-              <p className="text-slate-400 leading-relaxed">
-                Saat order matched, posisi kredit tercatat onchain dan diindeks Envio secara real-time di halaman Posisi Aktif.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80">
-              <div className="font-mono text-[#D4FF00] font-bold mb-1">Langkah 4</div>
-              <div className="font-semibold text-white mb-1">Klaim Mining Reward</div>
-              <p className="text-slate-400 leading-relaxed">
-                Setelah melewati holding period minimal, klaim weighted volume Anda di halaman Market Maker.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+            {[
+              { step: '01', title: 'Ambil Saldo Uji Coba', desc: 'Klik tombol Ambil Saldo +10k di kanan atas untuk mencoba tanpa modal sungguhan.' },
+              { step: '02', title: 'Pasang Tawaran', desc: 'Pilih jangka waktu dan tentukan bunga pinjaman yang Anda inginkan.' },
+              { step: '03', title: 'Pantau Transaksi', desc: 'Kesepakatan Anda langsung tercatat dan dapat dipantau setiap saat.' },
+              { step: '04', title: 'Selesai & Imbalan', desc: 'Terima pelunasan pokok beserta bunga dan klaim imbalan keaktifan Anda.' },
+            ].map((item) => (
+              <div key={item.step} className="p-4 rounded-xs bg-[#f6f7f5] border border-stone-200">
+                <div className="font-mono font-black text-[#163300] mb-1">{item.step}</div>
+                <div className="font-bold text-[#0e0f0c] mb-1">{item.title}</div>
+                <p className="text-[#454745] leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800 py-6 px-8 text-center text-xs text-slate-500">
-        <p>&copy; 2026 Fieble Protocol &bull; Fully Onchain Fixed-Rate Credit Market on Monad.</p>
+      <footer className="border-t border-stone-300 py-5 px-6 text-center text-xs text-[#868685]">
+        <p>&copy; 2026 Fieble Protocol. Fixed-Rate Credit on Monad.</p>
       </footer>
     </div>
   );

@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
 import { useAccount } from "wagmi";
 import { usePrivy } from "@privy-io/react-auth";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
-import { FaucetButton } from "@/components/faucet/FaucetButton";
+import { AppHeader } from "@/components/AppHeader";
 import { useMiningReward } from "@/hooks/useMiningReward";
 import { formatUSDC } from "@/lib/contracts";
 
@@ -13,200 +13,298 @@ export default function MarketMakerPage() {
   const { address } = useAccount();
   const { data, isLoading } = useMiningReward(address);
 
+  const [simSpreadBps, setSimSpreadBps] = useState<number>(30);
+  const [simHoldingPct, setSimHoldingPct] = useState<number>(80);
+  const [simVolume, setSimVolume] = useState<number>(10000);
+
   const totalWeighted = data?.totalWeightedVolume ?? BigInt(0);
   const matchCount = data?.matchCount ?? 0;
   const matchRecords = data?.matchRecords ?? [];
   const rewardAccruals = data?.rewardAccruals ?? [];
 
+  // WashTradingGuard Mathematical Formulation
+  const isHoldingQualified = simHoldingPct >= 50;
+  const spreadDecayFactor = Math.max(0, 1 - Math.pow(simSpreadBps / 300, 2));
+  const effectiveMultiplier = isHoldingQualified ? spreadDecayFactor * (simHoldingPct / 100) : 0;
+  const estimatedWeightedVolume = Math.round(simVolume * effectiveMultiplier);
+
   return (
-    <div className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-xl font-black text-white tracking-tight">
-            Fieble
-          </Link>
-          <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 font-medium">
-            Monad Testnet
-          </span>
-        </div>
+    <div className="min-h-screen bg-[#e8ebe6] text-[#0e0f0c] flex flex-col">
+      <AppHeader />
 
-        <nav className="flex items-center gap-4 text-sm font-medium">
-          <Link href="/dashboard" className="text-slate-400 hover:text-slate-200">
-            Dashboard
-          </Link>
-          <Link href="/orderbook" className="text-slate-400 hover:text-slate-200">
-            Order Book
-          </Link>
-          <Link href="/positions" className="text-slate-400 hover:text-slate-200">
-            Posisi Aktif
-          </Link>
-          <Link href="/market-maker" className="text-white font-semibold">
-            Market Maker
-          </Link>
-          <FaucetButton />
-          <ConnectButton />
-        </nav>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-6 flex flex-col gap-6">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6">
         <div>
-          <h1 className="text-2xl font-bold text-white">
-            Dashboard Market Maker & Liquidity Mining
+          <span className="text-[10px] font-mono font-black tracking-widest uppercase text-[#163300]">PROGRAM IMBALAN</span>
+          <h1 className="text-2xl sm:text-3xl font-black text-[#0e0f0c] tracking-tight">
+            Ringkasan Imbalan Penyedia Dana
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Program Matched-Volume Mining berbasis WashTradingGuard & Envio HyperIndex di Monad.
+          <p className="text-xs text-[#454745] mt-1">
+            Sistem penghargaan bagi penyedia dana dengan proteksi keamanan transaksi otomatis.
           </p>
         </div>
 
         {!authenticated || !address ? (
-          <div className="flex flex-col items-center justify-center gap-4 py-24 text-center rounded-2xl bg-slate-900/40 border border-slate-800">
-            <p className="text-slate-400 text-sm max-w-md">
-              Hubungkan wallet Anda untuk melihat metrik liquidity mining, volume terbobot (weighted volume), dan riwayat match organik.
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-center rounded-xs bg-white border border-stone-200">
+            <p className="text-[#454745] text-sm max-w-md">
+              Hubungkan dompet untuk melihat perolehan imbalan, aktivitas transaksi, dan riwayat kecocokan penawaran Anda.
             </p>
             <ConnectButton />
           </div>
         ) : (
           <>
-            {/* Top Metric Cards */}
+            {/* Top Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+              <div className="p-5 rounded-xs bg-white border border-stone-200 flex flex-col justify-between shadow-xs">
                 <div>
-                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                    Total Weighted Volume Anda
+                  <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                    Total Poin Imbalan Efektif
                   </div>
-                  <div className="text-2xl font-bold font-mono text-emerald-400 mt-2">
+                  <div className="text-2xl font-black font-mono text-[#2ead4b] mt-2">
                     {formatUSDC(totalWeighted)} mUSDC
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-3">
-                  Volume efektif terverifikasi onchain via WashTradingGuard
+                <div className="text-[11px] text-[#868685] mt-3">
+                  Poin terhitung berdasarkan kejujuran transaksi
                 </div>
               </div>
 
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+              <div className="p-5 rounded-xs bg-white border border-stone-200 flex flex-col justify-between shadow-xs">
                 <div>
-                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                    Total Match Organik Tercatat
+                  <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                    Transaksi Dicocokkan
                   </div>
-                  <div className="text-2xl font-bold font-mono text-white mt-2">
-                    {matchCount} Matches
+                  <div className="text-2xl font-black font-mono text-[#0e0f0c] mt-2">
+                    {matchCount} Transaksi
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-3">
-                  Match CLOB antar pengguna terindeks oleh Envio HyperIndex
+                <div className="text-[11px] text-[#868685] mt-3">
+                  Kesepakatan langsung antar pengguna
                 </div>
               </div>
 
-              <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between">
+              <div className="p-5 rounded-xs bg-white border border-stone-200 flex flex-col justify-between shadow-xs">
                 <div>
-                  <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
-                    Status Wash Trading Guard
+                  <div className="text-[10px] font-bold text-[#868685] uppercase tracking-wider">
+                    Perlindungan Anti-Manipulasi
                   </div>
-                  <div className="text-base font-bold text-blue-400 mt-2 flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                    Proteksi Aktif 100%
+                  <div className="text-base font-black text-[#2ead4b] mt-2 flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[#2ead4b]" />
+                    Proteksi Aktif
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-500 mt-3">
-                  Holding period weighting + TWAP spread decay
+                <div className="text-[11px] text-[#868685] mt-3">
+                  Pemeriksaan durasi simpan dan kewajaran bunga
                 </div>
               </div>
             </div>
 
-            {/* Wash Trading Guard Explanation Banner */}
-            <div className="p-5 rounded-2xl bg-indigo-950/20 border border-indigo-500/20 flex flex-col gap-3">
-              <div className="text-sm font-semibold text-indigo-300">
-                Mekanisme Anti-Wash Trading: Mengapa Volume Fieble Berkualitas Tinggi?
+            {/* Interactive Mining Multiplier Simulator */}
+            <div className="p-6 rounded-xs bg-white border border-stone-200 shadow-xs flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-3 border-b border-stone-100">
+                <div>
+                  <span className="text-[10px] font-mono font-bold uppercase text-[#163300] tracking-wider">
+                    SIMULASI IMBALAN
+                  </span>
+                  <h2 className="text-base font-black text-[#0e0f0c]">
+                    Simulasi Perhitungan Poin Imbalan
+                  </h2>
+                </div>
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-xs bg-[#e2f6d5] text-[#163300] border border-[#9fe870]/30">
+                  Rumus Keamanan Pasar
+                </span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300">
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-white mb-1">
-                    1. Holding Period Weighting
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                <div className="flex flex-col gap-4 md:col-span-2">
+                  {/* Spread Slider */}
+                  <div>
+                    <div className="flex justify-between items-center text-xs font-mono mb-1.5">
+                      <span className="text-[#454745] font-bold">Selisih Bunga vs Bunga Pasar:</span>
+                      <span className="font-black text-[#0e0f0c]">{simSpreadBps} bps ({(simSpreadBps / 100).toFixed(2)}%)</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="5"
+                      max="300"
+                      step="5"
+                      value={simSpreadBps}
+                      onChange={(e) => setSimSpreadBps(Number(e.target.value))}
+                      className="w-full h-2 bg-stone-200 rounded-xs appearance-none cursor-pointer accent-[#0e0f0c]"
+                    />
+                    <div className="flex justify-between text-[10px] text-[#868685] font-mono mt-1">
+                      <span>5 bps (Sesuai bunga wajar)</span>
+                      <span>300 bps (Batas penalti maksimal)</span>
+                    </div>
                   </div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Setiap posisi kredit wajib ditahan minimal 50% dari durasi tenor (contoh: 3.5 hari untuk bucket 1 Minggu). Klaim sebelum batas minimum menghasilkan weighted volume 0.
+
+                  {/* Holding Duration Slider */}
+                  <div>
+                    <div className="flex justify-between items-center text-xs font-mono mb-1.5">
+                      <span className="text-[#454745] font-bold">Waktu Dana Dibiarkan Aktif:</span>
+                      <span className="font-black text-[#0e0f0c]">{simHoldingPct}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      step="5"
+                      value={simHoldingPct}
+                      onChange={(e) => setSimHoldingPct(Number(e.target.value))}
+                      className="w-full h-2 bg-stone-200 rounded-xs appearance-none cursor-pointer accent-[#163300]"
+                    />
+                    <div className="flex justify-between text-[10px] text-[#868685] font-mono mt-1">
+                      <span className="text-red-500">&lt; 50% durasi (0 Poin Imbalan)</span>
+                      <span className="text-[#2ead4b]">50% hingga 100% (Berhak Dapat Poin)</span>
+                    </div>
+                  </div>
+
+                  {/* Volume Presets */}
+                  <div>
+                    <div className="flex justify-between items-center text-xs font-mono mb-1.5">
+                      <span className="text-[#454745] font-bold">Simulasi Jumlah Dana Terpasang:</span>
+                      <span className="font-black text-[#0e0f0c]">{simVolume.toLocaleString()} mUSDC</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[2500, 5000, 10000, 25000, 50000].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setSimVolume(val)}
+                          className={`px-2.5 py-1 text-xs font-mono font-bold rounded-xs transition-colors cursor-pointer ${
+                            simVolume === val
+                              ? "bg-[#0e0f0c] text-white"
+                              : "bg-[#e8ebe6] hover:bg-stone-300 text-[#454745]"
+                          }`}
+                        >
+                          {val >= 1000 ? `${val / 1000}k` : val}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulation Result Card */}
+                <div className="p-4 rounded-xs bg-[#f6f7f5] border border-stone-200 flex flex-col gap-3">
+                  <div className="text-[10px] font-mono font-bold uppercase text-[#868685] tracking-wider">
+                    Hasil Simulasi
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#454745]">Syarat Waktu Minimal:</div>
+                    <div className={`font-mono font-black text-sm mt-0.5 ${isHoldingQualified ? "text-[#2ead4b]" : "text-[#d03238]"}`}>
+                      {isHoldingQualified ? "[Memenuhi Syarat (>= 50%)]" : "[Belum Memenuhi Syarat (< 50%)]"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[#454745]">Pengali Poin:</div>
+                    <div className="font-mono font-black text-xl text-[#0e0f0c] mt-0.5">
+                      {(effectiveMultiplier * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-stone-200">
+                    <div className="text-xs text-[#454745]">Estimasi Poin Imbalan:</div>
+                    <div className="font-mono font-black text-lg text-[#163300] mt-0.5">
+                      {estimatedWeightedVolume.toLocaleString()} mUSDC
+                    </div>
+                    <div className="text-[10px] text-[#868685] mt-0.5">
+                      Dari dana terpasang: {simVolume.toLocaleString()} mUSDC
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Anti-Wash Mechanics Explanation */}
+            <div className="p-5 rounded-xs bg-white border border-stone-200 flex flex-col gap-3 shadow-xs">
+              <div className="text-xs font-black text-[#0e0f0c] uppercase tracking-wider font-mono">
+                Cara Kerja Keamanan Pasar
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-[#454745]">
+                <div className="p-3.5 rounded-xs bg-[#f6f7f5] border border-stone-200">
+                  <div className="font-bold text-[#0e0f0c] mb-1">
+                    Batas Minimal Waktu Penyimpanan Dana
+                  </div>
+                  <p className="leading-relaxed">
+                    Dana wajib dibiarkan aktif minimal 50% dari jangka waktu pinjaman. Pencairan sebelum batas tersebut menghasilkan 0 poin imbalan, guna mencegah manipulasi transaksi palsu.
                   </p>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="font-semibold text-white mb-1">
-                    2. TWAP Spread Decay
+                <div className="p-3.5 rounded-xs bg-[#f6f7f5] border border-stone-200">
+                  <div className="font-bold text-[#0e0f0c] mb-1">
+                    Kewajaran Suku Bunga Pasar
                   </div>
-                  <p className="text-slate-400 leading-relaxed">
-                    Tingkat suku bunga match dibandingkan dengan TWAP AMM fallback secara real-time. Deviasi suku bunga dari konsensus pasar memicu penalti kuadratik, mencegah spoofing order di luar harga wajar.
+                  <p className="leading-relaxed">
+                    Suku bunga yang ditawarkan terlalu jauh dari rata-rata pasar akan terkena penalti poin. Hal ini memastikan imbalan hanya diberikan kepada pihak yang menawarkan bunga wajar.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Indexed Match Records Table */}
+            {/* Match Records Table */}
             <div className="flex flex-col gap-3">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-bold text-white">
-                  Riwayat Match CLOB Organik Anda
+                <h2 className="text-base font-black text-[#0e0f0c]">
+                  Riwayat Transaksi Langsung
                 </h2>
-                <span className="text-xs text-slate-400">
-                  Sumber: Envio HyperIndex GraphQL
+                <span className="text-[10px] text-[#868685] font-mono font-bold">
+                  Tercatat di Blockchain
                 </span>
               </div>
 
               {isLoading ? (
-                <div className="py-12 text-center text-slate-500 text-sm">
-                  Memuat riwayat match dari Envio...
+                <div className="py-12 text-center text-[#868685] text-sm">
+                  Memuat riwayat transaksi...
                 </div>
               ) : matchRecords.length === 0 ? (
-                <div className="py-12 text-center rounded-2xl bg-slate-900/30 border border-slate-800 flex flex-col items-center gap-2">
-                  <p className="text-slate-400 text-sm">
-                    Belum ada riwayat match CLOB yang melibatkan wallet ini.
+                <div className="py-12 text-center rounded-xs bg-white border border-stone-200 flex flex-col items-center gap-2">
+                  <p className="text-[#454745] text-sm">
+                    Belum ada riwayat transaksi langsung untuk dompet ini.
                   </p>
-                  <p className="text-xs text-slate-500">
-                    Pasang limit order dua sisi di Order Book untuk mendapatkan reward liquidity mining.
+                  <p className="text-[10px] text-[#868685]">
+                    Pasang penawaran di Buku Penawaran untuk mendapatkan imbalan.
                   </p>
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <div className="overflow-x-auto rounded-xs border border-stone-200 bg-white">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
+                    <thead className="bg-[#f6f7f5] text-[#868685] uppercase tracking-wider text-[10px] border-b border-stone-200 font-mono">
                       <tr>
-                        <th className="p-3">Posisi</th>
-                        <th className="p-3">Peran</th>
-                        <th className="p-3">Nominal Matched</th>
-                        <th className="p-3">Suku Bunga Eksekusi</th>
-                        <th className="p-3">TWAP AMM</th>
-                        <th className="p-3">Waktu Match</th>
+                        <th className="p-3 font-bold">Posisi</th>
+                        <th className="p-3 font-bold">Peran</th>
+                        <th className="p-3 font-bold">Nominal</th>
+                        <th className="p-3 font-bold">Bunga Disepakati</th>
+                        <th className="p-3 font-bold">Bunga Rata-Rata Pasar</th>
+                        <th className="p-3 font-bold">Waktu</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800 font-mono">
+                    <tbody className="divide-y divide-stone-100 font-mono">
                       {matchRecords.map((m) => {
                         const isLender =
                           m.lender.toLowerCase() === address.toLowerCase();
                         return (
-                          <tr key={m.id} className="hover:bg-slate-800/40">
-                            <td className="p-3 font-semibold text-white">
+                          <tr key={m.id} className="hover:bg-stone-50 transition-colors">
+                            <td className="p-3 font-bold text-[#0e0f0c]">
                               #{m.positionId}
                             </td>
                             <td className="p-3">
                               <span
-                                className={`px-2 py-0.5 rounded text-[11px] ${
+                                className={`px-2 py-0.5 rounded-xs text-[10px] font-bold ${
                                   isLender
-                                    ? "bg-emerald-500/10 text-emerald-400"
-                                    : "bg-blue-500/10 text-blue-400"
+                                    ? "bg-[#e2f6d5] text-[#163300]"
+                                    : "bg-stone-200 text-[#0e0f0c]"
                                 }`}
                               >
-                                {isLender ? "Lender" : "Borrower"}
+                                {isLender ? "Pendana" : "Peminjam"}
                               </span>
                             </td>
-                            <td className="p-3 text-slate-200">
+                            <td className="p-3 text-[#0e0f0c]">
                               {formatUSDC(BigInt(m.matchedAmount))} mUSDC
                             </td>
-                            <td className="p-3 text-emerald-400">
+                            <td className="p-3 text-[#2ead4b] font-bold">
                               {(Number(m.executionRate) / 100).toFixed(2)}% APY
                             </td>
-                            <td className="p-3 text-slate-400">
+                            <td className="p-3 text-[#868685]">
                               {(Number(m.twapRateAtMatch) / 100).toFixed(2)}% APY
                             </td>
-                            <td className="p-3 text-slate-400">
+                            <td className="p-3 text-[#868685]">
                               {new Date(Number(m.timestamp) * 1000).toLocaleString("id-ID", {
                                 dateStyle: "short",
                                 timeStyle: "short",
@@ -221,29 +319,29 @@ export default function MarketMakerPage() {
               )}
             </div>
 
-            {/* Accrued Rewards List */}
+            {/* Accrued Rewards */}
             {rewardAccruals.length > 0 && (
               <div className="flex flex-col gap-3">
-                <h2 className="text-lg font-bold text-white">
-                  Event Klaim Reward Tercatat (RewardAccrued)
+                <h2 className="text-base font-black text-[#0e0f0c]">
+                  Riwayat Pengambilan Imbalan
                 </h2>
-                <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <div className="overflow-x-auto rounded-xs border border-stone-200 bg-white">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
+                    <thead className="bg-[#f6f7f5] text-[#868685] uppercase tracking-wider text-[10px] border-b border-stone-200 font-mono">
                       <tr>
-                        <th className="p-3">Posisi</th>
-                        <th className="p-3">Weighted Volume Terakreditasi</th>
-                        <th className="p-3">Waktu Klaim</th>
+                        <th className="p-3 font-bold">Posisi</th>
+                        <th className="p-3 font-bold">Poin Imbalan</th>
+                        <th className="p-3 font-bold">Waktu Pengambilan</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800 font-mono">
+                    <tbody className="divide-y divide-stone-100 font-mono">
                       {rewardAccruals.map((r) => (
-                        <tr key={r.id} className="hover:bg-slate-800/40">
-                          <td className="p-3 text-white">#{r.positionId}</td>
-                          <td className="p-3 text-emerald-400 font-bold">
+                        <tr key={r.id} className="hover:bg-stone-50 transition-colors">
+                          <td className="p-3 text-[#0e0f0c] font-bold">#{r.positionId}</td>
+                          <td className="p-3 text-[#2ead4b] font-bold">
                             {formatUSDC(BigInt(r.weightedVolume))} mUSDC
                           </td>
-                          <td className="p-3 text-slate-400">
+                          <td className="p-3 text-[#868685]">
                             {new Date(Number(r.timestamp) * 1000).toLocaleString("id-ID", {
                               dateStyle: "short",
                               timeStyle: "short",
