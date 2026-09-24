@@ -80,6 +80,9 @@ export default function OrderBookPage() {
           </span>
         </div>
         <nav className="flex items-center gap-4 text-sm font-medium">
+          <Link href="/dashboard" className="text-slate-400 hover:text-slate-200">
+            Dashboard
+          </Link>
           <Link href="/orderbook" className="text-white">
             Order Book
           </Link>

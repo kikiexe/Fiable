@@ -32,6 +32,9 @@ export default function MarketMakerPage() {
         </div>
 
         <nav className="flex items-center gap-4 text-sm font-medium">
+          <Link href="/dashboard" className="text-slate-400 hover:text-slate-200">
+            Dashboard
+          </Link>
           <Link href="/orderbook" className="text-slate-400 hover:text-slate-200">
             Order Book
           </Link>
